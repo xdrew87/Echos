@@ -1,4 +1,4 @@
-use reqwest::header::HeaderMap;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use trust_dns_resolver::Resolver;
 use trust_dns_resolver::config::*;
 use std::error::Error;
@@ -7,7 +7,7 @@ pub async fn send_http(profile: &crate::profiles::TrafficProfile) -> Result<(), 
     let client = reqwest::Client::new();
     let mut headers = HeaderMap::new();
     for (k, v) in &profile.custom_headers {
-        headers.insert(k, v.parse()?);
+        headers.insert(HeaderName::from_str(k)?, HeaderValue::from_str(v)?);
     }
     let res = client.get(&profile.target).headers(headers).send().await?;
     if res.status().is_success() {
