@@ -1,0 +1,14 @@
+# Rust build output
+/target/
+
+# Cargo lock is kept for binaries, remove this line if this were a library
+# Cargo.lock
+
+# IDE / editor directories
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db

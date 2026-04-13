@@ -17,10 +17,12 @@
 
 ## 🚀 Features
 
-- ✅ **Multi-Protocol Support**: HTTP, DNS, and ICMP beacon emulation
-- 🎭 **Threat Actor Profiles**: Pre-built profiles for Cobalt Strike, APT28, and more
-- ⏱️ **Jitter Algorithms**: Randomized delays to mimic real-world C2 traffic
-- 🛠️ **Custom Headers**: Fine-tune HTTP requests for signature evasion
+- ✅ **Multi-Protocol Support**: HTTP, HTTPS, DNS, ICMP, SMB, WebSocket, and SMTP beacon emulation
+- 🎭 **Threat Actor Profiles**: Pre-built profiles for Cobalt Strike, APT28, Lazarus Group, APT29, Emotet, and FIN7
+- ⏱️ **Jitter Algorithms**: Uniform, Gaussian (Box-Muller), and Sinusoidal (business-hours aware) delays
+- 🔄 **Domain Rotation**: Multi-target support for DGA / fast-flux beacon simulation (Emotet)
+- 🛡️ **Exponential Backoff**: Automatic retry with capped exponential backoff on consecutive failures
+- 🛠️ **Custom Headers**: Fine-tune HTTP/S requests for signature evasion (CDN masquerading, browser UA)
 - 🖥️ **CLI Interface**: Simple, intuitive command-line usage
 - ⚡ **Asynchronous Networking**: Tokio-powered for high performance
 - 🧩 **Modular Architecture**: Easy to extend with new protocols and profiles
@@ -72,13 +74,34 @@ Run Echos with a specific profile:
 ### Examples
 
 ```bash
-# Emulate Cobalt Strike beacon
+# Emulate Cobalt Strike HTTP beacon
 ./echos --profile Cobalt
 
 # Emulate APT28 DNS queries
 ./echos --profile APT28
 
-# Emulate ICMP beacons
+# Emulate Lazarus Group HTTPS C2 (Gaussian jitter)
+./echos --profile Lazarus
+
+# Emulate APT29 slow HTTPS beaconing (sinusoidal / business-hours jitter)
+./echos --profile APT29
+
+# Emulate Emotet HTTP with rotating targets
+./echos --profile Emotet
+
+# Emulate FIN7 CDN-masqueraded HTTPS
+./echos --profile FIN7
+
+# SMB lateral-movement probe
+./echos --profile "SMB Beacon"
+
+# WebSocket C2 channel
+./echos --profile "WebSocket Beacon"
+
+# SMTP exfil simulation
+./echos --profile "SMTP Beacon"
+
+# ICMP beacons
 ./echos --profile "ICMP Beacon"
 ```
 
@@ -88,11 +111,26 @@ Echos will run indefinitely, sending beacons at randomized intervals based on th
 
 Echos includes several pre-configured profiles:
 
-| Profile | Protocol | Description | Base Delay | Jitter |
-|---------|----------|-------------|------------|--------|
-| **Cobalt** | HTTP | Mimics Cobalt Strike C2 traffic | 10s | 20% |
-| **APT28** | DNS | Simulates APT28 DNS beaconing | 30s | 10% |
-| **ICMP Beacon** | ICMP | Basic ICMP ping-based beacon | 60s | 5% |
+| Profile | Protocol | Jitter | Description | Base Delay | Jitter % |
+|---------|----------|--------|-------------|------------|--------|
+| **Cobalt** | HTTP | Uniform | Mimics Cobalt Strike C2 traffic | 10s | 20% |
+| **APT28** | DNS | Uniform | Simulates APT28 DNS beaconing | 30s | 10% |
+| **Lazarus** | HTTPS | Gaussian | Lazarus Group slow C2, Korean-locale UA | 300s | 15% |
+| **APT29** | HTTPS | Sinusoidal | Cozy Bear business-hours-aware beaconing | 600s | 10% |
+| **Emotet** | HTTP | Gaussian | Rotating target pool (DGA/fast-flux sim) | 60s | 25% |
+| **FIN7** | HTTPS | Uniform | CDN-masquerading headers (Cloudflare) | 30s | 10% |
+| **SMB Beacon** | SMB | Uniform | SMB negotiate probe on port 445 | 120s | 10% |
+| **WebSocket Beacon** | WebSocket | Uniform | WebSocket frame-based C2 channel | 15s | 15% |
+| **SMTP Beacon** | SMTP | Uniform | SMTP EHLO exfil-channel probe | 90s | 10% |
+| **ICMP Beacon** | ICMP | Uniform | Basic ICMP ping-based beacon | 60s | 5% |
+
+### Jitter Algorithms
+
+| Algorithm | Description |
+|-----------|-------------|
+| **Uniform** | Random delay sampled uniformly from `[base - jitter, base + jitter]` |
+| **Gaussian** | Normal distribution (Box-Muller transform) centred at `base_delay` with `std_dev = jitter_amount` |
+| **Sinusoidal** | Time-of-day modulation: 1× delay at ~13:00, up to 3× delay at ~01:00, mimicking daytime-only adversaries |
 
 > 💡 **Tip**: Profiles can be extended or customized in `src/profiles.rs`.
 
