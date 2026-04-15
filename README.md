@@ -1,5 +1,7 @@
 # Echos
 
+[![CI](https://github.com/xdrew87/Echos/actions/workflows/ci.yml/badge.svg)](https://github.com/xdrew87/Echos/actions/workflows/ci.yml)
+
 **Modular network beacon emulator for EDR/NDR detection lab validation — written in Rust.**
 
 Echos replays realistic C2-style beacon traffic so defenders can verify that their detection stack — EDR, NDR, IDS/IPS, SIEM — fires the right alerts under controlled, repeatable conditions. It is not a post-exploitation framework. It sends no payloads, executes no code on remote systems, and requires no implant. It is purely a traffic generator designed for authorized lab use.
