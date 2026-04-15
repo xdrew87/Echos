@@ -6,8 +6,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use trust_dns_resolver::config::*;
-use trust_dns_resolver::TokioAsyncResolver;
+use hickory_resolver::config::*;
+use hickory_resolver::TokioAsyncResolver;
 
 use crate::runtime::RuntimeOptions;
 
@@ -64,9 +64,9 @@ pub async fn send_dns(
     _opts: &RuntimeOptions,
 ) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
-    let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())?;
+    let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
     let response = resolver.lookup_ip(target).await?;
-    let ips: Vec<_> = response.iter().collect();
+    let ips: Vec<std::net::IpAddr> = response.iter().collect();
     tracing::debug!(target, ?ips, "DNS lookup result");
     Ok(())
 }
