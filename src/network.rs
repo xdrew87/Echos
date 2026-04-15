@@ -1,4 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
+use hickory_resolver::config::*;
+use hickory_resolver::TokioAsyncResolver;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::error::Error;
 use std::str::FromStr;
@@ -6,8 +8,6 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use hickory_resolver::config::*;
-use hickory_resolver::TokioAsyncResolver;
 
 use crate::runtime::RuntimeOptions;
 
