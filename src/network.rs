@@ -45,6 +45,7 @@ pub async fn send_https(
 ) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(opts.timeout_secs))
         .danger_accept_invalid_certs(opts.insecure_tls)
         .build()?;
     let res = client
