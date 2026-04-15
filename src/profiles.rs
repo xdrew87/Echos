@@ -3,8 +3,10 @@ use std::f64::consts::PI;
 use std::time::Duration;
 use rand::Rng;
 use chrono::Timelike;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum JitterAlgorithm {
     /// Uniform random delay within ±jitter_percent of base_delay.
     Uniform,
@@ -15,7 +17,18 @@ pub enum JitterAlgorithm {
     Sinusoidal,
 }
 
-#[derive(Debug, Clone)]
+impl JitterAlgorithm {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            JitterAlgorithm::Uniform => "Uniform",
+            JitterAlgorithm::Gaussian => "Gaussian",
+            JitterAlgorithm::Sinusoidal => "Sinusoidal",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Protocol {
     Http,
     Https,
@@ -24,6 +37,20 @@ pub enum Protocol {
     Smb,
     WebSocket,
     Smtp,
+}
+
+impl Protocol {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Protocol::Http => "HTTP",
+            Protocol::Https => "HTTPS",
+            Protocol::Dns => "DNS",
+            Protocol::Icmp => "ICMP",
+            Protocol::Smb => "SMB",
+            Protocol::WebSocket => "WebSocket",
+            Protocol::Smtp => "SMTP",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +65,8 @@ pub struct TrafficProfile {
     pub jitter_percent: f64,
     pub jitter_algorithm: JitterAlgorithm,
     pub protocol: Protocol,
+    /// True when loaded from a user-supplied TOML config file.
+    pub from_config: bool,
 }
 
 impl TrafficProfile {
@@ -57,6 +86,7 @@ impl TrafficProfile {
             jitter_percent,
             jitter_algorithm: JitterAlgorithm::Uniform,
             protocol,
+            from_config: false,
         }
     }
 
@@ -206,4 +236,67 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         cobalt, apt28, icmp_profile, lazarus, apt29, emotet, fin7,
         smb_profile, ws_profile, smtp_profile,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_uniform_jitter_bounds() {
+        let p = TrafficProfile::new("T", "http://t", 10, 20.0, Protocol::Http);
+        let min = 10.0 * (1.0 - 20.0 / 100.0);
+        let max = 10.0 * (1.0 + 20.0 / 100.0);
+        for _ in 0..200 {
+            let d = p.calculate_jitter().as_secs_f64();
+            assert!(
+                d >= min - 1e-9 && d <= max + 1e-9,
+                "delay {d} out of bounds [{min}, {max}]"
+            );
+        }
+    }
+
+    #[test]
+    fn test_gaussian_jitter_positive() {
+        let p = TrafficProfile::new("T", "http://t", 10, 20.0, Protocol::Http)
+            .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+        for _ in 0..200 {
+            let d = p.calculate_jitter().as_secs_f64();
+            assert!(d > 0.0, "Gaussian delay {d} not positive");
+        }
+    }
+
+    #[test]
+    fn test_sinusoidal_jitter_nonzero() {
+        let p = TrafficProfile::new("T", "http://t", 10, 20.0, Protocol::Http)
+            .with_jitter_algorithm(JitterAlgorithm::Sinusoidal);
+        for _ in 0..200 {
+            let d = p.calculate_jitter().as_secs_f64();
+            assert!(d > 0.0, "Sinusoidal delay {d} not positive");
+        }
+    }
+
+    #[test]
+    fn test_target_rotation() {
+        let mut p = TrafficProfile::new("T", "http://t1", 10, 10.0, Protocol::Http);
+        p.add_target("http://t2");
+        p.add_target("http://t3");
+        p.add_target("http://t4");
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..100 {
+            seen.insert(p.get_target().to_string());
+        }
+        // All three added targets should appear across 100 iterations.
+        assert!(seen.contains("http://t2"), "t2 never selected");
+        assert!(seen.contains("http://t3"), "t3 never selected");
+        assert!(seen.contains("http://t4"), "t4 never selected");
+    }
+
+    #[test]
+    fn test_single_target_deterministic() {
+        let p = TrafficProfile::new("T", "http://primary", 10, 10.0, Protocol::Http);
+        for _ in 0..100 {
+            assert_eq!(p.get_target(), "http://primary");
+        }
+    }
 }

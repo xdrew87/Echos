@@ -9,6 +9,8 @@ use tokio::net::TcpStream;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
+use crate::runtime::RuntimeOptions;
+
 fn build_headers(profile: &crate::profiles::TrafficProfile) -> Result<HeaderMap, Box<dyn Error>> {
     let mut headers = HeaderMap::new();
     for (k, v) in &profile.custom_headers {
@@ -17,43 +19,42 @@ fn build_headers(profile: &crate::profiles::TrafficProfile) -> Result<HeaderMap,
     Ok(headers)
 }
 
-pub async fn send_http(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+pub async fn send_http(profile: &crate::profiles::TrafficProfile, _opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let client = reqwest::Client::new();
     let res = client.get(target).headers(build_headers(profile)?).send().await?;
-    if res.status().is_success() {
-        println!("[!] HTTP beacon sent to {}", target);
-    } else {
-        eprintln!("[X] HTTP beacon failed: {} for {}", res.status(), target);
+    if !res.status().is_success() {
+        return Err(format!("HTTP {}", res.status()).into());
     }
+    tracing::debug!(target, status = %res.status(), "HTTP response received");
     Ok(())
 }
 
-/// HTTPS beacon with TLS certificate validation disabled to allow self-signed certs on C2 servers.
-pub async fn send_https(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+/// HTTPS beacon. TLS certificate validation is enabled by default; pass `--insecure-tls` to
+/// allow self-signed or invalid certificates (e.g. for lab C2 servers).
+pub async fn send_https(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_certs(opts.insecure_tls)
         .build()?;
     let res = client.get(target).headers(build_headers(profile)?).send().await?;
-    if res.status().is_success() {
-        println!("[!] HTTPS beacon sent to {}", target);
-    } else {
-        eprintln!("[X] HTTPS beacon failed: {} for {}", res.status(), target);
+    if !res.status().is_success() {
+        return Err(format!("HTTPS {}", res.status()).into());
     }
+    tracing::debug!(target, status = %res.status(), "HTTPS response received");
     Ok(())
 }
 
-pub async fn send_dns(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+pub async fn send_dns(profile: &crate::profiles::TrafficProfile, _opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())?;
     let response = resolver.lookup_ip(target).await?;
     let ips: Vec<_> = response.iter().collect();
-    println!("[!] DNS beacon for {}: {:?}", target, ips);
+    tracing::debug!(target, ?ips, "DNS lookup result");
     Ok(())
 }
 
-pub async fn send_icmp(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+pub async fn send_icmp(profile: &crate::profiles::TrafficProfile, _opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let output = tokio::process::Command::new("ping")
         .arg("-n")
@@ -61,17 +62,16 @@ pub async fn send_icmp(profile: &crate::profiles::TrafficProfile) -> Result<(), 
         .arg(target)
         .output()
         .await?;
-    if output.status.success() {
-        println!("[!] ICMP beacon to {} successful", target);
-    } else {
-        eprintln!("[X] ICMP beacon to {} failed", target);
+    if !output.status.success() {
+        return Err(format!("ICMP ping to {} failed", target).into());
     }
+    tracing::debug!(target, "ICMP ping successful");
     Ok(())
 }
 
 /// SMB beacon: establishes a TCP connection to port 445 and sends an SMBv1/v2/v3 negotiate
 /// request to trigger lateral-movement and SMB-scanning NDR signatures.
-pub async fn send_smb(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+pub async fn send_smb(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     // Reject targets that already contain a port to prevent a malformed "host:port:445" address.
     if target.contains(':') {
@@ -83,7 +83,7 @@ pub async fn send_smb(profile: &crate::profiles::TrafficProfile) -> Result<(), B
     }
     let addr = format!("{}:445", target);
     let mut stream = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(opts.timeout_secs),
         TcpStream::connect(&addr),
     )
     .await
@@ -122,18 +122,18 @@ pub async fn send_smb(profile: &crate::profiles::TrafficProfile) -> Result<(), B
 
     let mut buf = [0u8; 512];
     match tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await {
-        Ok(Ok(n)) if n > 0 => println!("[!] SMB beacon to {}: server responded ({} bytes)", target, n),
-        _ => println!("[!] SMB probe sent to {} (no response within timeout)", target),
+        Ok(Ok(n)) if n > 0 => tracing::debug!(target, bytes = n, "SMB server responded"),
+        _ => tracing::debug!(target, "SMB probe sent (no response within timeout)"),
     }
     Ok(())
 }
 
 /// WebSocket beacon: connects and sends a single "beacon" text frame, simulating
 /// persistent WebSocket-based C2 channels used by modern implants.
-pub async fn send_websocket(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+pub async fn send_websocket(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let (ws_stream, _) = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(opts.timeout_secs),
         connect_async(target),
     )
     .await
@@ -145,13 +145,13 @@ pub async fn send_websocket(profile: &crate::profiles::TrafficProfile) -> Result
     // ports over a long-running beacon loop.
     write.close().await?;
     while let Ok(Some(_)) = tokio::time::timeout(Duration::from_secs(2), read.next()).await {}
-    println!("[!] WebSocket beacon sent to {}", target);
+    tracing::debug!(target, "WebSocket beacon frame sent");
     Ok(())
 }
 
 /// SMTP beacon: probes an SMTP server with EHLO to simulate email-based exfiltration
 /// or SMTP C2 channel establishment without sending actual mail.
-pub async fn send_smtp(profile: &crate::profiles::TrafficProfile) -> Result<(), Box<dyn Error>> {
+pub async fn send_smtp(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     // Determine address: if the target already specifies a port (e.g. "host:587" or "[::1]:25"),
     // use it as-is. A bare hostname/IP without a port gets port 25 appended.
@@ -165,7 +165,7 @@ pub async fn send_smtp(profile: &crate::profiles::TrafficProfile) -> Result<(), 
     };
 
     let mut stream = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(opts.timeout_secs),
         TcpStream::connect(&addr),
     )
     .await
@@ -175,12 +175,12 @@ pub async fn send_smtp(profile: &crate::profiles::TrafficProfile) -> Result<(), 
     // Read SMTP banner
     let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
     let banner = String::from_utf8_lossy(&buf[..n]);
-    println!("[!] SMTP beacon to {}: banner=\"{}\"", addr, banner.trim());
+    tracing::debug!(addr, banner = banner.trim(), "SMTP banner received");
 
     // Send EHLO to elicit capability advertisement
     stream.write_all(b"EHLO beacon.internal\r\n").await?;
     let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
-    println!("[!] SMTP EHLO response: {} bytes received", n);
+    tracing::debug!(addr, bytes = n, "SMTP EHLO response received");
 
     let _ = stream.write_all(b"QUIT\r\n").await;
     Ok(())

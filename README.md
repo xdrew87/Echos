@@ -1,196 +1,386 @@
-<div align="center">
+# Echos
 
-# Echos 📡
+**Modular network beacon emulator for EDR/NDR detection lab validation — written in Rust.**
 
-[![Rust](https://img.shields.io/badge/Rust-1.70%2B-orange)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/xdrew87/echos/ci.yml)](https://github.com/xdrew87/echos/actions)
-
-**A lightweight, high-performance Red Team traffic emulation tool written in Rust**  
-*Simulate C2 beacons to test EDR/NDR detection capabilities*
-
-[Installation](#-installation) • [Usage](#-usage) • [Contributing](#-contributing)
-
-</div>
+Echos replays realistic C2-style beacon traffic so defenders can verify that their detection stack — EDR, NDR, IDS/IPS, SIEM — fires the right alerts under controlled, repeatable conditions. It is not a post-exploitation framework. It sends no payloads, executes no code on remote systems, and requires no implant. It is purely a traffic generator designed for authorized lab use.
 
 ---
 
-## 🚀 Features
+## Why Echos?
 
-- ✅ **Multi-Protocol Support**: HTTP, HTTPS, DNS, ICMP, SMB, WebSocket, and SMTP beacon emulation
-- 🎭 **Threat Actor Profiles**: Pre-built profiles for Cobalt Strike, APT28, Lazarus Group, APT29, Emotet, and FIN7
-- ⏱️ **Jitter Algorithms**: Uniform, Gaussian (Box-Muller), and Sinusoidal (business-hours aware) delays
-- 🔄 **Domain Rotation**: Multi-target support for DGA / fast-flux beacon simulation (Emotet)
-- 🛡️ **Exponential Backoff**: Automatic retry with capped exponential backoff on consecutive failures
-- 🛠️ **Custom Headers**: Fine-tune HTTP/S requests for signature evasion (CDN masquerading, browser UA)
-- 🖥️ **CLI Interface**: Simple, intuitive command-line usage
-- ⚡ **Asynchronous Networking**: Tokio-powered for high performance
-- 🧩 **Modular Architecture**: Easy to extend with new protocols and profiles
+Detection engineering requires repeatable, controllable stimulus. Running a real implant in a lab introduces risk, licensing complexity, and noise. Echos gives you a single binary that generates accurately structured beacon traffic — correct headers, correct timing distributions, correct protocol shapes — without any of that baggage.
 
-## 📋 Table of Contents
+Use it to answer questions like:
 
-- [Installation](#installation)
-- [Usage](#usage)
-- [Profiles](#profiles)
-- [Building from Source](#building-from-source)
-- [Contributing](#contributing)
-- [License](#license)
-- [Disclaimer](#disclaimer)
+- Does my NDR alert on Cobalt Strike-style HTTP headers hitting an internal listener?
+- Does my SIEM correctly correlate 10 DNS beacon queries from the same host in under 5 minutes?
+- Does my detection rule fire on SMTP EHLO probes from workstation endpoints?
+- Does exponential backoff behavior in a failing beacon evade my anomaly model?
 
-## 🛠️ Installation
+---
 
-### Pre-built Binaries (Coming Soon)
+## Features
 
-Download the latest release from the [Releases](https://github.com/xdrew87/echos/releases) page.
+- **7 protocols** — HTTP, HTTPS, DNS, ICMP, SMB, WebSocket, SMTP
+- **10 built-in profiles** — Cobalt Strike, APT28, Lazarus, APT29, Emotet, FIN7, ICMP, SMB, WebSocket, SMTP
+- **3 jitter algorithms** — Uniform, Gaussian (Box-Muller), Sinusoidal (business-hours modulation)
+- **Bounded execution** — `--count N` or `--duration SECS`, stop on whichever hits first
+- **Runtime target override** — `--target` points any profile at your listener without recompiling
+- **External TOML config** — define custom profiles without touching source code
+- **Structured logging** — human-readable or JSON, with optional file output
+- **Exponential backoff** — kicks in after 3 consecutive beacon failures, caps at 300 s
+- **Rotating target pools** — simulate DGA/fast-flux by specifying multiple targets per profile
+- **Safe HTTPS defaults** — certificate validation on by default; `--insecure-tls` only when explicitly passed
+- **Dry-run mode** — preview exactly what would happen without sending any traffic
 
-### From Source
+---
 
-Ensure you have [Rust](https://rustup.rs/) installed (version 1.70 or later).
+## Quick Start
 
 ```bash
-git clone https://github.com/xdrew87/echos.git
+# Build
+git clone https://github.com/xdrew87/echos
 cd echos
 cargo build --release
+
+# List all profiles
+./target/release/echos --list
+
+# Run a single beacon iteration
+./target/release/echos --profile Cobalt --count 1 --target http://127.0.0.1:8080
+
+# Preview without sending traffic
+./target/release/echos --profile APT29 --dry-run
 ```
 
-The binary will be available at `target/release/echos`.
-
-## 📖 Usage
-
-Run Echos with a specific profile:
-
-```bash
-./echos --profile Cobalt
-```
-
-### Command Line Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-p, --profile <PROFILE>` | Select a traffic profile | Cobalt |
-| `-h, --help` | Display help information | - |
-| `-V, --version` | Display version information | - |
-
-### Examples
-
-```bash
-# Emulate Cobalt Strike HTTP beacon
-./echos --profile Cobalt
-
-# Emulate APT28 DNS queries
-./echos --profile APT28
-
-# Emulate Lazarus Group HTTPS C2 (Gaussian jitter)
-./echos --profile Lazarus
-
-# Emulate APT29 slow HTTPS beaconing (sinusoidal / business-hours jitter)
-./echos --profile APT29
-
-# Emulate Emotet HTTP with rotating targets
-./echos --profile Emotet
-
-# Emulate FIN7 CDN-masqueraded HTTPS
-./echos --profile FIN7
-
-# SMB lateral-movement probe
-./echos --profile "SMB Beacon"
-
-# WebSocket C2 channel
-./echos --profile "WebSocket Beacon"
-
-# SMTP exfil simulation
-./echos --profile "SMTP Beacon"
-
-# ICMP beacons
-./echos --profile "ICMP Beacon"
-```
-
-Echos will run indefinitely, sending beacons at randomized intervals based on the profile's jitter settings.
-
-## 🎭 Profiles
-
-Echos includes several pre-configured profiles:
-
-| Profile | Protocol | Jitter | Description | Base Delay | Jitter % |
-|---------|----------|--------|-------------|------------|--------|
-| **Cobalt** | HTTP | Uniform | Mimics Cobalt Strike C2 traffic | 10s | 20% |
-| **APT28** | DNS | Uniform | Simulates APT28 DNS beaconing | 30s | 10% |
-| **Lazarus** | HTTPS | Gaussian | Lazarus Group slow C2, Korean-locale UA | 300s | 15% |
-| **APT29** | HTTPS | Sinusoidal | Cozy Bear business-hours-aware beaconing | 600s | 10% |
-| **Emotet** | HTTP | Gaussian | Rotating target pool (DGA/fast-flux sim) | 60s | 25% |
-| **FIN7** | HTTPS | Uniform | CDN-masquerading headers (Cloudflare) | 30s | 10% |
-| **SMB Beacon** | SMB | Uniform | SMB negotiate probe on port 445 | 120s | 10% |
-| **WebSocket Beacon** | WebSocket | Uniform | WebSocket frame-based C2 channel | 15s | 15% |
-| **SMTP Beacon** | SMTP | Uniform | SMTP EHLO exfil-channel probe | 90s | 10% |
-| **ICMP Beacon** | ICMP | Uniform | Basic ICMP ping-based beacon | 60s | 5% |
-
-### Jitter Algorithms
-
-| Algorithm | Description |
-|-----------|-------------|
-| **Uniform** | Random delay sampled uniformly from `[base - jitter, base + jitter]` |
-| **Gaussian** | Normal distribution (Box-Muller transform) centred at `base_delay` with `std_dev = jitter_amount` |
-| **Sinusoidal** | Time-of-day modulation: 1× delay at ~13:00, up to 3× delay at ~01:00, mimicking daytime-only adversaries |
-
-> 💡 **Tip**: Profiles can be extended or customized in `src/profiles.rs`.
-
-## 🔨 Building from Source
-
-### Prerequisites
-
-- Rust 1.70+
-- Cargo
-
-### Build Steps
-
-```bash
-cargo build --release
-```
-
-### Development
-
-For development builds with debug symbols:
-
-```bash
-cargo build
-```
-
-Run tests:
-
-```bash
-cargo test
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository 🍴
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request 📝
-
-### Adding New Profiles
-
-1. Add a new `TrafficProfile` in `src/profiles.rs`
-2. Implement the protocol handler in `src/network.rs` if needed
-3. Update this README
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## ⚠️ Disclaimer
-
-**Echos is an educational tool for defensive security research and testing. It should only be used in controlled environments with explicit permission. The authors are not responsible for any misuse or illegal activities.**
+Requires Rust 1.70+.
 
 ---
 
-<div align="center">
+## Install from source
 
-**Made with ❤️ for the security community**
+## Install from source
 
-[⭐ Star us on GitHub](https://github.com/xdrew87/echos) • [🐛 Report Issues](https://github.com/xdrew87/echos/issues)
+```bash
+git clone https://github.com/xdrew87/echos
+cd echos
+cargo build --release
+./target/release/echos --list
+```
 
-</div>
+Requires Rust 1.70+.
+
+---
+
+## Example Output
+
+### `--list`
+
+```
+Available Profiles (10 total — 10 built-in, 0 from config)
+
+  NAME                   PROTOCOL      DELAY    JITTER    ALGORITHM       ROTATING     HEADERS    SOURCE
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────
+  Cobalt                 HTTP          10s      20%       Uniform         No           5          Built-in
+  APT28                  DNS           30s      10%       Uniform         No           0          Built-in
+  ICMP Beacon            ICMP          60s      5%        Uniform         No           0          Built-in
+  Lazarus                HTTPS         300s     15%       Gaussian        No           5          Built-in
+  APT29                  HTTPS         600s     10%       Sinusoidal      No           5          Built-in
+  Emotet                 HTTP          60s      25%       Gaussian        Yes          3          Built-in
+  FIN7                   HTTPS         30s      10%       Uniform         No           6          Built-in
+  SMB Beacon             SMB           120s     10%       Uniform         No           0          Built-in
+  WebSocket Beacon       WebSocket     15s      15%       Uniform         No           0          Built-in
+  SMTP Beacon            SMTP          90s      10%       Uniform         No           0          Built-in
+
+Target: use --target to override any profile's destination at runtime.
+```
+
+### `--dry-run`
+
+```
+[DRY RUN] Would run profile "Cobalt" (HTTP → http://127.0.0.1:8080)
+  Jitter       : 20% Uniform
+  Timeout      : 10s
+  Insecure TLS : No
+  Count limit  : none
+  Duration     : none
+```
+
+### Running a profile (human log format)
+
+```
+2026-04-15T04:02:11Z  INFO echos started profile=Cobalt protocol=Http target=http://10.0.0.1:8080
+2026-04-15T04:02:11Z  INFO beacon sent profile=Cobalt protocol=Http target=http://10.0.0.1:8080 attempt=1
+2026-04-15T04:02:19Z  INFO beacon sent profile=Cobalt protocol=Http target=http://10.0.0.1:8080 attempt=2
+2026-04-15T04:02:30Z  INFO beacon sent profile=Cobalt protocol=Http target=http://10.0.0.1:8080 attempt=3
+─────────────────────────────────────
+  Run Summary
+─────────────────────────────────────
+  Profile           : Cobalt
+  Protocol          : HTTP
+  Target            : http://10.0.0.1:8080
+  Attempts          : 3
+  Successes         : 3
+  Failures          : 0
+  Failure Rate      : 0.0%
+  Avg Delay         : 9.84s
+  Start             : 2026-04-15 04:02:11
+  End               : 2026-04-15 04:02:41
+  Runtime           : 30.2s
+  Dry Run           : No
+  Insecure TLS      : No
+─────────────────────────────────────
+```
+
+### JSON log output (`--json`)
+
+```json
+{
+  "timestamp": "2026-04-15T04:02:11.112Z",
+  "level": "INFO",
+  "fields": {
+    "message": "beacon sent",
+    "profile": "Cobalt",
+    "protocol": "Http",
+    "target": "http://10.0.0.1:8080",
+    "attempt": 1
+  },
+  "target": "echos"
+}
+```
+
+JSON summary (end of run):
+
+```json
+{
+  "profile": "Cobalt",
+  "protocol": "HTTP",
+  "target": "http://10.0.0.1:8080",
+  "attempts": 3,
+  "successes": 3,
+  "failures": 0,
+  "failure_rate_pct": 0.0,
+  "avg_delay_secs": 9.84,
+  "start": "2026-04-15 04:02:11",
+  "end": "2026-04-15 04:02:41",
+  "runtime_secs": 30.2,
+  "dry_run": false,
+  "insecure_tls": false
+}
+```
+
+---
+
+## CLI Reference
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p, --profile <NAME>` | `Cobalt` | Beacon profile to use |
+| `--list` | — | Print available profiles and exit |
+| `--target <URL>` | — | Override the profile destination at runtime |
+| `--count <N>` | — | Send exactly N beacon iterations then exit |
+| `--duration <SECS>` | — | Run for this many seconds then exit |
+| `--config <FILE>` | — | Load additional profiles from a TOML file |
+| `--config-dir <DIR>` | — | Load profiles from all `.toml` files in a directory |
+| `--json` | — | Emit structured JSON logs and output summary as JSON |
+| `--verbose` | — | Show debug-level details |
+| `--quiet` | — | Show only warnings, errors, and the final summary |
+| `--log-file <FILE>` | — | Write logs to a file (always JSON format) |
+| `--timeout <SECS>` | `10` | Per-connection/request timeout |
+| `--insecure-tls` | — | Accept invalid/self-signed TLS certificates (HTTPS only) |
+| `--dry-run` | — | Print what would happen and exit without sending traffic |
+
+When both `--count` and `--duration` are given, echos stops when **either** limit is first reached.
+
+---
+
+## Use Cases
+
+### Red team lab testing
+
+Validate that your C2 listener traffic pattern is indistinguishable from the real threat actor profile before running an engagement:
+
+```bash
+# Confirm Cobalt Strike HTTP profile reaches your team server
+echos --profile Cobalt --count 5 --target http://teamserver.lab.internal:8080
+
+# Test APT29-style slow HTTPS beaconing over 10 minutes
+echos --profile APT29 --duration 600 --insecure-tls --target https://192.168.10.5:443
+```
+
+### Detection engineering
+
+Trigger specific detection rules on demand, repeatably:
+
+```bash
+# Fire Cobalt Strike HTTP User-Agent signature once
+echos --profile Cobalt --count 1 --target http://sensor.lab.internal:8080
+
+# Generate 10 DNS beacon queries for correlation testing
+echos --profile APT28 --count 10
+
+# Trigger SMB negotiate probe detection
+echos --profile "SMB Beacon" --count 3 --target 192.168.1.50
+```
+
+### SIEM and pipeline validation
+
+Use structured JSON output to feed results into your validation pipeline:
+
+```bash
+# Machine-readable output for CI/CD detection validation
+echos --profile Cobalt --count 10 --json --quiet 2>/dev/null
+
+# Write a timestamped run log to disk
+echos --profile FIN7 --count 20 --json --log-file /tmp/fin7-run.json
+
+# Validate multiple profiles in a shell loop
+for profile in Cobalt APT28 Lazarus; do
+  echos --profile "$profile" --count 1 --json --quiet
+done
+```
+
+---
+
+## Safety and Intended Use
+
+Echos is designed **exclusively for authorized security testing and detection validation** in environments you own or have explicit written permission to test.
+
+- It sends no payloads and executes no code on remote systems
+- All traffic is directed at targets you specify via `--target`
+- Default targets point to `127.0.0.1` — no external traffic by default
+- TLS certificates are validated by default
+- Generating unsolicited beacon traffic on networks you do not control may violate computer-fraud laws
+
+See [SECURITY.md](SECURITY.md) for the full responsible-use policy.
+
+---
+
+## Lab Guide
+
+See [docs/lab-guide.md](docs/lab-guide.md) for a step-by-step walkthrough of setting up a detection validation lab with Echos.
+
+---
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned features and future direction.
+
+---
+
+
+
+```bash
+# List all available profiles
+echos --list
+
+# Dry-run to preview behaviour without sending traffic
+echos --profile Cobalt --dry-run
+
+# Override target at runtime
+echos --profile Cobalt --target http://10.0.0.1:8080 --count 5
+
+# Run Lazarus profile for 60 s with self-signed cert support
+echos --profile Lazarus --duration 60 --insecure-tls
+
+# Emit structured JSON output and save logs to file
+echos --profile APT29 --count 3 --json --log-file run.json
+
+# Load a custom profile from TOML, run quietly
+echos --config examples/echos.toml --profile "My Custom Profile" --count 10 --quiet
+
+# Load all TOML files from a directory
+echos --config-dir ./profiles.d --list
+```
+
+---
+
+## HTTPS and TLS Certificate Validation
+
+By default, echos **validates TLS certificates normally**. This is the safe, secure default.
+
+Pass `--insecure-tls` only when your lab server uses a self-signed certificate and you understand the implications:
+
+```bash
+echos --profile Lazarus --insecure-tls --count 1
+```
+
+This flag affects only HTTPS profiles. HTTP, DNS, ICMP, SMB, WebSocket, and SMTP profiles are unaffected.
+
+---
+
+## Config File Format
+
+Define additional profiles in TOML. Load them at runtime with `--config` or `--config-dir`.
+
+```toml
+# examples/echos.toml
+
+[[profiles]]
+name             = "My Custom Profile"
+protocol         = "https"
+target           = "https://192.168.1.100:8443"
+base_delay_secs  = 45
+jitter_percent   = 15.0
+jitter_algorithm = "gaussian"   # uniform | gaussian | sinusoidal (default: uniform)
+
+[profiles.headers]
+User-Agent = "Mozilla/5.0 (compatible; LabScanner/1.0)"
+X-Lab-ID   = "detection-lab-01"
+```
+
+**Required fields:** `name`, `protocol`, `target`, `base_delay_secs`, `jitter_percent`
+**Optional fields:** `targets` (rotating list), `headers`, `jitter_algorithm`
+
+External profiles with the same name as a built-in profile silently override the built-in.
+
+---
+
+## Available Profiles
+
+| Profile | Protocol | Delay | Jitter | Algorithm | Notes |
+|---------|----------|-------|--------|-----------|-------|
+| Cobalt | HTTP | 10 s | 20% | Uniform | Cobalt Strike-style headers |
+| APT28 | DNS | 30 s | 10% | Uniform | DNS lookup beacon |
+| ICMP Beacon | ICMP | 60 s | 5% | Uniform | Ping-based probe |
+| Lazarus | HTTPS | 300 s | 15% | Gaussian | Korean-language UA, slow C2 |
+| APT29 | HTTPS | 600 s | 10% | Sinusoidal | Office 365 UA, business-hours blend |
+| Emotet | HTTP | 60 s | 25% | Gaussian | Rotating 4-target pool, DGA simulation |
+| FIN7 | HTTPS | 30 s | 10% | Uniform | CDN-masquerading headers |
+| SMB Beacon | SMB | 120 s | 10% | Uniform | SMB negotiate probe on port 445 |
+| WebSocket Beacon | WebSocket | 15 s | 15% | Uniform | Single text frame over WS |
+| SMTP Beacon | SMTP | 90 s | 10% | Uniform | EHLO probe without sending mail |
+
+---
+
+## Jitter Algorithms
+
+| Algorithm | Behaviour |
+|-----------|-----------|
+| `uniform` | Random delay uniformly distributed in `[base × (1−jitter%), base × (1+jitter%)]` |
+| `gaussian` | Box-Muller normal distribution centred at `base`, σ = `jitter_amount`; clamped to > 0.1 s |
+| `sinusoidal` | Time-of-day modulation: 3× base at 01:00, 1× base at 13:00; mimics business-hours blending |
+
+---
+
+## Download Pre-built Binaries
+
+Pre-built binaries for Linux, Windows, and macOS are published on the [Releases page](https://github.com/xdrew87/echos/releases) for every tagged version.
+
+| Platform | File |
+|----------|------|
+| Linux x86-64 | `echos-linux-x86_64` |
+| Windows x86-64 | `echos-windows-x86_64.exe` |
+| macOS x86-64 | `echos-macos-x86_64` |
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add profiles, run tests, and open pull requests.
+
+---
+
+## Disclaimer
+
+Echos is intended **exclusively for authorized security testing and defensive research** in environments you own or have explicit written permission to test. Generating unsolicited beacon traffic on networks you do not control may violate computer-fraud laws. The authors assume no liability for misuse.

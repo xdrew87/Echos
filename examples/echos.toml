@@ -1,0 +1,14 @@
+# Echos external profile configuration example.
+# Use with: echos --config examples/echos.toml --profile "My Custom Profile"
+
+[[profiles]]
+name             = "My Custom Profile"
+protocol         = "https"
+target           = "https://192.168.1.100:8443"
+base_delay_secs  = 45
+jitter_percent   = 15.0
+jitter_algorithm = "gaussian"
+
+[profiles.headers]
+User-Agent = "Mozilla/5.0 (compatible; LabScanner/1.0)"
+X-Lab-ID   = "detection-lab-01"
