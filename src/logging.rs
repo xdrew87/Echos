@@ -2,7 +2,13 @@ use std::path::Path;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 fn make_filter(verbose: bool, quiet: bool) -> EnvFilter {
-    let level = if verbose { "debug" } else if quiet { "warn" } else { "info" };
+    let level = if verbose {
+        "debug"
+    } else if quiet {
+        "warn"
+    } else {
+        "info"
+    };
     EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level))
 }
 
@@ -43,7 +49,12 @@ pub fn init(
             tracing_subscriber::registry()
                 .with(make_filter(verbose, quiet))
                 .with(fmt::layer().with_target(false))
-                .with(fmt::layer().json().with_ansi(false).with_writer(non_blocking))
+                .with(
+                    fmt::layer()
+                        .json()
+                        .with_ansi(false)
+                        .with_writer(non_blocking),
+                )
                 .init();
             Some(guard)
         }
@@ -52,7 +63,12 @@ pub fn init(
             tracing_subscriber::registry()
                 .with(make_filter(verbose, quiet))
                 .with(fmt::layer().json())
-                .with(fmt::layer().json().with_ansi(false).with_writer(non_blocking))
+                .with(
+                    fmt::layer()
+                        .json()
+                        .with_ansi(false)
+                        .with_writer(non_blocking),
+                )
                 .init();
             Some(guard)
         }

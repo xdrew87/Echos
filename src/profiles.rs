@@ -1,9 +1,9 @@
+use chrono::Timelike;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::time::Duration;
-use rand::Rng;
-use chrono::Timelike;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -97,7 +97,8 @@ impl TrafficProfile {
     }
 
     pub fn add_header(&mut self, key: &str, value: &str) {
-        self.custom_headers.insert(key.to_string(), value.to_string());
+        self.custom_headers
+            .insert(key.to_string(), value.to_string());
     }
 
     pub fn add_target(&mut self, target: &str) {
@@ -110,7 +111,7 @@ impl TrafficProfile {
         if self.targets.is_empty() {
             &self.target
         } else {
-            let idx = rand::thread_rng().gen_range(0..self.targets.len());
+            let idx = rand::rng().random_range(0..self.targets.len());
             &self.targets[idx]
         }
     }
@@ -118,20 +119,21 @@ impl TrafficProfile {
     pub fn calculate_jitter(&self) -> Duration {
         let base_secs = self.base_delay.as_secs_f64();
         let jitter_amount = base_secs * (self.jitter_percent / 100.0);
-        let mut rng = rand::thread_rng();
 
         match self.jitter_algorithm {
             JitterAlgorithm::Uniform => {
                 let min_delay = base_secs - jitter_amount;
                 let max_delay = base_secs + jitter_amount;
-                Duration::from_secs_f64(rng.gen_range(min_delay..=max_delay))
+                let mut rng = rand::rng();
+                Duration::from_secs_f64(rng.random_range(min_delay..=max_delay))
             }
 
             JitterAlgorithm::Gaussian => {
                 // Box-Muller transform: produces a standard normal sample z,
                 // then scales to mean=base_secs, std_dev=jitter_amount.
-                let u1: f64 = rng.gen_range(f64::EPSILON..=1.0);
-                let u2: f64 = rng.gen_range(0.0..=1.0);
+                let mut rng = rand::rng();
+                let u1: f64 = rng.random_range(f64::EPSILON..=1.0);
+                let u2: f64 = rng.random_range(0.0..=1.0);
                 let z = (-2.0 * u1.ln()).sqrt() * (2.0 * PI * u2).cos();
                 let delay = (base_secs + z * jitter_amount).max(0.1);
                 Duration::from_secs_f64(delay)
@@ -147,7 +149,8 @@ impl TrafficProfile {
                 let adjusted_jitter = jitter_amount * modifier;
                 let min_delay = (adjusted_base - adjusted_jitter).max(0.1);
                 let max_delay = adjusted_base + adjusted_jitter;
-                Duration::from_secs_f64(rng.gen_range(min_delay..=max_delay))
+                let mut rng = rand::rng();
+                Duration::from_secs_f64(rng.random_range(min_delay..=max_delay))
             }
         }
     }
@@ -155,9 +158,13 @@ impl TrafficProfile {
 
 pub fn get_profiles() -> Vec<TrafficProfile> {
     // --- Cobalt Strike ---
-    let mut cobalt = TrafficProfile::new("Cobalt", "http://127.0.0.1:8080", 10, 20.0, Protocol::Http);
+    let mut cobalt =
+        TrafficProfile::new("Cobalt", "http://127.0.0.1:8080", 10, 20.0, Protocol::Http);
     cobalt.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
-    cobalt.add_header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+    cobalt.add_header(
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    );
     cobalt.add_header("Accept-Language", "en-US,en;q=0.5");
     cobalt.add_header("Accept-Encoding", "gzip, deflate");
     cobalt.add_header("Connection", "keep-alive");
@@ -170,8 +177,14 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
 
     // --- Lazarus Group ---
     // HTTPS C2 with slow, Gaussian-jittered beaconing, mimicking Korean-language browser UA.
-    let mut lazarus = TrafficProfile::new("Lazarus", "https://127.0.0.1:8443", 300, 15.0, Protocol::Https)
-        .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    let mut lazarus = TrafficProfile::new(
+        "Lazarus",
+        "https://127.0.0.1:8443",
+        300,
+        15.0,
+        Protocol::Https,
+    )
+    .with_jitter_algorithm(JitterAlgorithm::Gaussian);
     lazarus.add_header(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -184,8 +197,14 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     // --- APT29 / Cozy Bear ---
     // Ultra-slow HTTPS beaconing with sinusoidal (business-hours) jitter to blend with
     // enterprise traffic, mimicking Office 365 authentication flows.
-    let mut apt29 = TrafficProfile::new("APT29", "https://127.0.0.1:8443", 600, 10.0, Protocol::Https)
-        .with_jitter_algorithm(JitterAlgorithm::Sinusoidal);
+    let mut apt29 = TrafficProfile::new(
+        "APT29",
+        "https://127.0.0.1:8443",
+        600,
+        10.0,
+        Protocol::Https,
+    )
+    .with_jitter_algorithm(JitterAlgorithm::Sinusoidal);
     apt29.add_header(
         "User-Agent",
         "Microsoft Office/16.0 (Windows NT 10.0; Microsoft Outlook 16.0.17328; Pro)",
@@ -197,8 +216,9 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
 
     // --- Emotet ---
     // HTTP with rotating target pool (simulates DGA / fast-flux), Gaussian jitter.
-    let mut emotet = TrafficProfile::new("Emotet", "http://127.0.0.1:8080", 60, 25.0, Protocol::Http)
-        .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    let mut emotet =
+        TrafficProfile::new("Emotet", "http://127.0.0.1:8080", 60, 25.0, Protocol::Http)
+            .with_jitter_algorithm(JitterAlgorithm::Gaussian);
     emotet.add_header(
         "User-Agent",
         "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.1; Trident/4.0)",
@@ -227,14 +247,28 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     let smb_profile = TrafficProfile::new("SMB Beacon", "127.0.0.1", 120, 10.0, Protocol::Smb);
 
     // --- WebSocket Beacon ---
-    let ws_profile = TrafficProfile::new("WebSocket Beacon", "ws://127.0.0.1:8080", 15, 15.0, Protocol::WebSocket);
+    let ws_profile = TrafficProfile::new(
+        "WebSocket Beacon",
+        "ws://127.0.0.1:8080",
+        15,
+        15.0,
+        Protocol::WebSocket,
+    );
 
     // --- SMTP Beacon ---
     let smtp_profile = TrafficProfile::new("SMTP Beacon", "127.0.0.1:25", 90, 10.0, Protocol::Smtp);
 
     vec![
-        cobalt, apt28, icmp_profile, lazarus, apt29, emotet, fin7,
-        smb_profile, ws_profile, smtp_profile,
+        cobalt,
+        apt28,
+        icmp_profile,
+        lazarus,
+        apt29,
+        emotet,
+        fin7,
+        smb_profile,
+        ws_profile,
+        smtp_profile,
     ]
 }
 

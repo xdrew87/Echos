@@ -1,7 +1,7 @@
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
-use serde::Deserialize;
 
 use crate::profiles::{JitterAlgorithm, Protocol, TrafficProfile};
 
@@ -59,7 +59,13 @@ fn convert(pc: ProfileConfig, source_path: &Path) -> Result<TrafficProfile, Stri
     let jitter_algorithm = parse_jitter_algorithm(&pc.jitter_algorithm)
         .map_err(|e| format!("profile '{}' in {:?}: {}", pc.name, source_path, e))?;
 
-    let mut profile = TrafficProfile::new(&pc.name, &pc.target, pc.base_delay_secs, pc.jitter_percent, protocol);
+    let mut profile = TrafficProfile::new(
+        &pc.name,
+        &pc.target,
+        pc.base_delay_secs,
+        pc.jitter_percent,
+        protocol,
+    );
     profile.jitter_algorithm = jitter_algorithm;
     profile.from_config = true;
 
@@ -89,7 +95,7 @@ pub fn load_from_dir(dir: &Path) -> Result<Vec<TrafficProfile>, Box<dyn Error>> 
     let mut paths: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |ext| ext == "toml"))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "toml"))
         .collect();
     paths.sort();
 

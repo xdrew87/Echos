@@ -1,13 +1,13 @@
+use futures_util::{SinkExt, StreamExt};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use std::error::Error;
 use std::str::FromStr;
 use std::time::Duration;
-use trust_dns_resolver::TokioAsyncResolver;
-use trust_dns_resolver::config::*;
-use std::error::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use trust_dns_resolver::config::*;
+use trust_dns_resolver::TokioAsyncResolver;
 
 use crate::runtime::RuntimeOptions;
 
@@ -19,10 +19,17 @@ fn build_headers(profile: &crate::profiles::TrafficProfile) -> Result<HeaderMap,
     Ok(headers)
 }
 
-pub async fn send_http(profile: &crate::profiles::TrafficProfile, _opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_http(
+    profile: &crate::profiles::TrafficProfile,
+    _opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let client = reqwest::Client::new();
-    let res = client.get(target).headers(build_headers(profile)?).send().await?;
+    let res = client
+        .get(target)
+        .headers(build_headers(profile)?)
+        .send()
+        .await?;
     if !res.status().is_success() {
         return Err(format!("HTTP {}", res.status()).into());
     }
@@ -32,12 +39,19 @@ pub async fn send_http(profile: &crate::profiles::TrafficProfile, _opts: &Runtim
 
 /// HTTPS beacon. TLS certificate validation is enabled by default; pass `--insecure-tls` to
 /// allow self-signed or invalid certificates (e.g. for lab C2 servers).
-pub async fn send_https(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_https(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(opts.insecure_tls)
         .build()?;
-    let res = client.get(target).headers(build_headers(profile)?).send().await?;
+    let res = client
+        .get(target)
+        .headers(build_headers(profile)?)
+        .send()
+        .await?;
     if !res.status().is_success() {
         return Err(format!("HTTPS {}", res.status()).into());
     }
@@ -45,7 +59,10 @@ pub async fn send_https(profile: &crate::profiles::TrafficProfile, opts: &Runtim
     Ok(())
 }
 
-pub async fn send_dns(profile: &crate::profiles::TrafficProfile, _opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_dns(
+    profile: &crate::profiles::TrafficProfile,
+    _opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())?;
     let response = resolver.lookup_ip(target).await?;
@@ -54,7 +71,10 @@ pub async fn send_dns(profile: &crate::profiles::TrafficProfile, _opts: &Runtime
     Ok(())
 }
 
-pub async fn send_icmp(profile: &crate::profiles::TrafficProfile, _opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_icmp(
+    profile: &crate::profiles::TrafficProfile,
+    _opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let output = tokio::process::Command::new("ping")
         .arg("-n")
@@ -71,7 +91,10 @@ pub async fn send_icmp(profile: &crate::profiles::TrafficProfile, _opts: &Runtim
 
 /// SMB beacon: establishes a TCP connection to port 445 and sends an SMBv1/v2/v3 negotiate
 /// request to trigger lateral-movement and SMB-scanning NDR signatures.
-pub async fn send_smb(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_smb(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     // Reject targets that already contain a port to prevent a malformed "host:port:445" address.
     if target.contains(':') {
@@ -130,7 +153,10 @@ pub async fn send_smb(profile: &crate::profiles::TrafficProfile, opts: &RuntimeO
 
 /// WebSocket beacon: connects and sends a single "beacon" text frame, simulating
 /// persistent WebSocket-based C2 channels used by modern implants.
-pub async fn send_websocket(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_websocket(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     let (ws_stream, _) = tokio::time::timeout(
         Duration::from_secs(opts.timeout_secs),
@@ -151,7 +177,10 @@ pub async fn send_websocket(profile: &crate::profiles::TrafficProfile, opts: &Ru
 
 /// SMTP beacon: probes an SMTP server with EHLO to simulate email-based exfiltration
 /// or SMTP C2 channel establishment without sending actual mail.
-pub async fn send_smtp(profile: &crate::profiles::TrafficProfile, opts: &RuntimeOptions) -> Result<(), Box<dyn Error>> {
+pub async fn send_smtp(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
     // Determine address: if the target already specifies a port (e.g. "host:587" or "[::1]:25"),
     // use it as-is. A bare hostname/IP without a port gets port 25 appended.

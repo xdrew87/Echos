@@ -4,25 +4,36 @@
 // Style: Idiomatic Rust, modular, high performance, low memory.
 // Educational tool for defensive testing and security auditing.
 
-mod profiles;
-mod network;
-mod runtime;
 mod config;
 mod logging;
+mod network;
+mod profiles;
+mod runtime;
 
+use crate::profiles::{Protocol, TrafficProfile};
+use crate::runtime::RuntimeOptions;
+use clap::Parser;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-use clap::Parser;
-use serde::Serialize;
-use crate::profiles::{Protocol, TrafficProfile};
-use crate::runtime::RuntimeOptions;
 
 #[derive(Parser)]
-#[command(name = "echos", version = "0.2.0", about = "Network beacon emulator for EDR/NDR detection lab testing")]
-#[command(after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run")]
+#[command(
+    name = "echos",
+    version = "0.2.0",
+    about = "Network beacon emulator for EDR/NDR detection lab testing"
+)]
+#[command(
+    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run"
+)]
 struct Args {
-    #[arg(short, long, default_value = "Cobalt", help = "Name of the beacon profile to run")]
+    #[arg(
+        short,
+        long,
+        default_value = "Cobalt",
+        help = "Name of the beacon profile to run"
+    )]
     profile: String,
 
     #[arg(long, help = "List all available profiles and exit")]
@@ -40,25 +51,43 @@ struct Args {
     #[arg(long, help = "Load profile definitions from a TOML config file")]
     config: Option<PathBuf>,
 
-    #[arg(long, help = "Load profile definitions from all .toml files in a directory")]
+    #[arg(
+        long,
+        help = "Load profile definitions from all .toml files in a directory"
+    )]
     config_dir: Option<PathBuf>,
 
     #[arg(long, help = "Emit structured JSON logs")]
     json: bool,
 
-    #[arg(long, help = "Print additional runtime details", conflicts_with = "quiet")]
+    #[arg(
+        long,
+        help = "Print additional runtime details",
+        conflicts_with = "quiet"
+    )]
     verbose: bool,
 
-    #[arg(long, help = "Suppress routine messages; show only warnings/errors/summary", conflicts_with = "verbose")]
+    #[arg(
+        long,
+        help = "Suppress routine messages; show only warnings/errors/summary",
+        conflicts_with = "verbose"
+    )]
     quiet: bool,
 
     #[arg(long, help = "Write logs to a file")]
     log_file: Option<PathBuf>,
 
-    #[arg(long, default_value = "10", help = "Per-connection/request timeout in seconds")]
+    #[arg(
+        long,
+        default_value = "10",
+        help = "Per-connection/request timeout in seconds"
+    )]
     timeout: u64,
 
-    #[arg(long, help = "Accept invalid/self-signed TLS certificates (HTTPS only)")]
+    #[arg(
+        long,
+        help = "Accept invalid/self-signed TLS certificates (HTTPS only)"
+    )]
     insecure_tls: bool,
 
     #[arg(long, help = "Print what would run and exit without sending traffic")]
@@ -106,8 +135,8 @@ fn print_list(profiles: &[TrafficProfile]) {
     );
 
     println!(
-        "  {:<22} {:<13} {:<8} {:<9} {:<14} {:<11} {:<10} {}",
-        "NAME", "PROTOCOL", "DELAY", "JITTER", "ALGORITHM", "ROTATING", "HEADERS", "SOURCE"
+        "  {:<22} {:<13} {:<8} {:<9} {:<14} {:<11} {:<10} SOURCE",
+        "NAME", "PROTOCOL", "DELAY", "JITTER", "ALGORITHM", "ROTATING", "HEADERS"
     );
     println!("  {}", "─".repeat(93));
 
@@ -159,7 +188,10 @@ fn print_list_json(profiles: &[TrafficProfile]) {
             source: if p.from_config { "Config" } else { "Built-in" },
         })
         .collect();
-    println!("{}", serde_json::to_string_pretty(&infos).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&infos).unwrap_or_default()
+    );
 }
 
 fn print_summary_human(summary: &RunSummary) {
@@ -178,8 +210,16 @@ fn print_summary_human(summary: &RunSummary) {
     println!("  {:<18}: {}", "Start", summary.start);
     println!("  {:<18}: {}", "End", summary.end);
     println!("  {:<18}: {:.1}s", "Runtime", summary.runtime_secs);
-    println!("  {:<18}: {}", "Dry Run", if summary.dry_run { "Yes" } else { "No" });
-    println!("  {:<18}: {}", "Insecure TLS", if summary.insecure_tls { "Yes" } else { "No" });
+    println!(
+        "  {:<18}: {}",
+        "Dry Run",
+        if summary.dry_run { "Yes" } else { "No" }
+    );
+    println!(
+        "  {:<18}: {}",
+        "Insecure TLS",
+        if summary.insecure_tls { "Yes" } else { "No" }
+    );
     println!("{sep}");
 }
 
@@ -187,17 +227,19 @@ fn print_summary_human(summary: &RunSummary) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let _log_guard = logging::init(args.verbose, args.quiet, args.json, args.log_file.as_deref());
+    let _log_guard = logging::init(
+        args.verbose,
+        args.quiet,
+        args.json,
+        args.log_file.as_deref(),
+    );
 
     let opts = RuntimeOptions {
         insecure_tls: args.insecure_tls,
         timeout_secs: args.timeout,
         dry_run: args.dry_run,
         json_output: args.json,
-        verbose: args.verbose,
-        quiet: args.quiet,
         target_override: args.target.clone(),
-        log_file: args.log_file.clone(),
     };
 
     // Load built-in profiles then merge external ones (later wins on name collision).
@@ -260,15 +302,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let effective_target = active_profile.target.clone();
 
     if opts.dry_run {
-        println!("[DRY RUN] Would run profile \"{}\" ({} → {})",
+        println!(
+            "[DRY RUN] Would run profile \"{}\" ({} → {})",
             active_profile.name,
             active_profile.protocol.display_name(),
-            effective_target);
-        println!("  Jitter       : {:.0}% {}", active_profile.jitter_percent, active_profile.jitter_algorithm.display_name());
+            effective_target
+        );
+        println!(
+            "  Jitter       : {:.0}% {}",
+            active_profile.jitter_percent,
+            active_profile.jitter_algorithm.display_name()
+        );
         println!("  Timeout      : {}s", opts.timeout_secs);
-        println!("  Insecure TLS : {}", if opts.insecure_tls { "Yes" } else { "No" });
-        println!("  Count limit  : {}", args.count.map_or("none".to_string(), |c| c.to_string()));
-        println!("  Duration     : {}", args.duration.map_or("none".to_string(), |d| format!("{}s", d)));
+        println!(
+            "  Insecure TLS : {}",
+            if opts.insecure_tls { "Yes" } else { "No" }
+        );
+        println!(
+            "  Count limit  : {}",
+            args.count.map_or("none".to_string(), |c| c.to_string())
+        );
+        println!(
+            "  Duration     : {}",
+            args.duration
+                .map_or("none".to_string(), |d| format!("{}s", d))
+        );
         return Ok(());
     }
 
@@ -309,13 +367,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let beacon_target = active_profile.get_target().to_string();
 
         let result = match active_profile.protocol {
-            Protocol::Http     => network::send_http(&active_profile, &opts).await,
-            Protocol::Https    => network::send_https(&active_profile, &opts).await,
-            Protocol::Dns      => network::send_dns(&active_profile, &opts).await,
-            Protocol::Icmp     => network::send_icmp(&active_profile, &opts).await,
-            Protocol::Smb      => network::send_smb(&active_profile, &opts).await,
+            Protocol::Http => network::send_http(&active_profile, &opts).await,
+            Protocol::Https => network::send_https(&active_profile, &opts).await,
+            Protocol::Dns => network::send_dns(&active_profile, &opts).await,
+            Protocol::Icmp => network::send_icmp(&active_profile, &opts).await,
+            Protocol::Smb => network::send_smb(&active_profile, &opts).await,
             Protocol::WebSocket => network::send_websocket(&active_profile, &opts).await,
-            Protocol::Smtp     => network::send_smtp(&active_profile, &opts).await,
+            Protocol::Smtp => network::send_smtp(&active_profile, &opts).await,
         };
 
         match result {
