@@ -1,6 +1,10 @@
 # Echos
 
 [![CI](https://github.com/xdrew87/Echos/actions/workflows/ci.yml/badge.svg)](https://github.com/xdrew87/Echos/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/xdrew87/Echos/releases)
+[![Language](https://img.shields.io/badge/language-Rust-orange?logo=rust)](https://www.rust-lang.org)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)](https://github.com/xdrew87/Echos/releases)
 
 **Modular network beacon emulator for EDR/NDR detection lab validation — written in Rust.**
 
@@ -29,6 +33,8 @@ Use it to answer questions like:
 - **Bounded execution** — `--count N` or `--duration SECS`, stop on whichever hits first
 - **Runtime target override** — `--target` points any profile at your listener without recompiling
 - **External TOML config** — define custom profiles without touching source code
+- **Profile sequencing** — `--sequence "Cobalt,APT28"` or named sequences from config
+- **Sigma rule export** — `--export-sigma --profile <name>` prints a ready-to-tune Sigma YAML rule
 - **Structured logging** — human-readable or JSON, with optional file output
 - **Exponential backoff** — kicks in after 3 consecutive beacon failures, caps at 300 s
 - **Rotating target pools** — simulate DGA/fast-flux by specifying multiple targets per profile
@@ -192,6 +198,8 @@ JSON summary (end of run):
 | `--duration <SECS>` | — | Run for this many seconds then exit |
 | `--config <FILE>` | — | Load additional profiles from a TOML file |
 | `--config-dir <DIR>` | — | Load profiles from all `.toml` files in a directory |
+| `--sequence <NAMES>` | — | Run profiles in sequence: `"Cobalt,APT28"` or a named sequence from config |
+| `--export-sigma` | — | Print a Sigma YAML detection rule for the selected profile and exit |
 | `--json` | — | Emit structured JSON logs and output summary as JSON |
 | `--verbose` | — | Show debug-level details |
 | `--quiet` | — | Show only warnings, errors, and the final summary |
@@ -201,6 +209,83 @@ JSON summary (end of run):
 | `--dry-run` | — | Print what would happen and exit without sending traffic |
 
 When both `--count` and `--duration` are given, echos stops when **either** limit is first reached.
+
+---
+
+## Profile Sequencing
+
+Run multiple profiles back-to-back in a defined order using `--sequence`.
+
+**Inline (comma-separated):**
+```bash
+echos --sequence "Cobalt,APT28" --count 3
+```
+Each profile fires 3 beacons in order: Cobalt first, then APT28.
+
+**Named sequence from config:**
+```toml
+# examples/echos.toml
+[[sequences]]
+name     = "recon-chain"
+profiles = ["APT28", "LDAP Beacon", "RDP Beacon", "SMB Beacon"]
+```
+```bash
+echos --config examples/echos.toml --sequence recon-chain
+```
+
+**With a global time budget:**
+```bash
+echos --config examples/echos.toml --sequence recon-chain --duration 120
+```
+The 120 s budget is shared across all profiles in the sequence; execution stops when time runs out.
+
+In sequence mode, `--count` sets the per-profile iteration count (default: 1 per profile).
+
+---
+
+## Sigma Rule Export
+
+Generate an experimental Sigma YAML detection rule from any profile definition:
+
+```bash
+echos --export-sigma --profile APT28
+```
+
+Example output:
+```yaml
+title: Echos - APT28
+id: echos-apt28
+status: experimental
+description: "Detects beacon traffic matching the Echos 'APT28' profile (DNS protocol)."
+author: Echos (generated)
+date: 2025-01-15
+references:
+  - https://github.com/xdrew87/Echos
+tags:
+  - attack.command_and_control
+  - attack.t1071.004
+logsource:
+  category: dns
+detection:
+  selection:
+    QueryName|contains: "example.com"
+    QueryType: 'A'
+  condition: selection
+fields:
+  - QueryName
+  - QueryType
+  - record_type
+  - answers
+falsepositives:
+  - Legitimate traffic using the same user-agent or ports
+  - Security scanning tools
+level: medium
+```
+
+Rules are experimental — review and tune before deploying in production. Use with `--config` to export rules for custom profiles too:
+```bash
+echos --config examples/echos.toml --export-sigma --profile "My Custom Profile"
+```
 
 ---
 

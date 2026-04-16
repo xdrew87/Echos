@@ -9,11 +9,13 @@ mod logging;
 mod network;
 mod profiles;
 mod runtime;
+mod sigma;
 
 use crate::profiles::{Protocol, TrafficProfile};
 use crate::runtime::RuntimeOptions;
 use clap::Parser;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -21,11 +23,11 @@ use tokio::time::sleep;
 #[derive(Parser)]
 #[command(
     name = "echos",
-    version = "0.2.0",
+    version = "0.4.0",
     about = "Network beacon emulator for EDR/NDR detection lab testing"
 )]
 #[command(
-    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run"
+    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28"
 )]
 struct Args {
     #[arg(
@@ -92,6 +94,18 @@ struct Args {
 
     #[arg(long, help = "Print what would run and exit without sending traffic")]
     dry_run: bool,
+
+    #[arg(
+        long,
+        help = "Run profiles in sequence. Comma-separated names (\"Cobalt,APT28\") or a named sequence from --config"
+    )]
+    sequence: Option<String>,
+
+    #[arg(
+        long,
+        help = "Export a Sigma detection rule for the selected profile and exit"
+    )]
+    export_sigma: bool,
 }
 
 #[derive(Serialize)]
@@ -223,112 +237,34 @@ fn print_summary_human(summary: &RunSummary) {
     println!("{sep}");
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
-
-    let _log_guard = logging::init(
-        args.verbose,
-        args.quiet,
-        args.json,
-        args.log_file.as_deref(),
-    );
-
-    let opts = RuntimeOptions {
-        insecure_tls: args.insecure_tls,
-        timeout_secs: args.timeout,
-        dry_run: args.dry_run,
-        json_output: args.json,
-        target_override: args.target.clone(),
-    };
-
-    // Load built-in profiles then merge external ones (later wins on name collision).
-    let mut all_profiles = profiles::get_profiles();
-
-    if let Some(ref path) = args.config {
-        match config::load_from_file(path) {
-            Ok(loaded) => all_profiles = merge_profiles(all_profiles, loaded),
-            Err(e) => {
-                eprintln!("[X] Failed to load config file {:?}: {}", path, e);
-                std::process::exit(1);
-            }
-        }
+/// Dispatch a single beacon to the appropriate network function.
+async fn dispatch(
+    profile: &TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match &profile.protocol {
+        Protocol::Http => network::send_http(profile, opts).await,
+        Protocol::Https => network::send_https(profile, opts).await,
+        Protocol::Dns => network::send_dns(profile, opts).await,
+        Protocol::Icmp => network::send_icmp(profile, opts).await,
+        Protocol::Smb => network::send_smb(profile, opts).await,
+        Protocol::WebSocket => network::send_websocket(profile, opts).await,
+        Protocol::Smtp => network::send_smtp(profile, opts).await,
+        Protocol::Ftp => network::send_ftp(profile, opts).await,
+        Protocol::Ldap => network::send_ldap(profile, opts).await,
+        Protocol::Rdp => network::send_rdp(profile, opts).await,
     }
+}
 
-    if let Some(ref dir) = args.config_dir {
-        match config::load_from_dir(dir) {
-            Ok(loaded) => all_profiles = merge_profiles(all_profiles, loaded),
-            Err(e) => {
-                eprintln!("[X] Failed to load config dir {:?}: {}", dir, e);
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if args.list {
-        if args.json {
-            print_list_json(&all_profiles);
-        } else {
-            print_list(&all_profiles);
-        }
-        return Ok(());
-    }
-
-    let profile = match all_profiles.iter().find(|p| p.name == args.profile) {
-        Some(p) => p,
-        None => match all_profiles.first() {
-            Some(p) => {
-                tracing::warn!(
-                    requested = %args.profile,
-                    fallback = %p.name,
-                    "profile not found, falling back"
-                );
-                p
-            }
-            None => {
-                eprintln!("[X] No profiles available. Exiting.");
-                std::process::exit(1);
-            }
-        },
-    };
-
-    // Apply --target override: clear rotating targets and set a single deterministic target.
-    let mut active_profile = profile.clone();
-    if let Some(ref target) = opts.target_override {
-        active_profile.target = target.clone();
-        active_profile.targets.clear();
-    }
-
+/// Run the beacon loop for a single profile.
+/// When both `count` and `duration_secs` are `None`, runs indefinitely (single-profile default).
+async fn run_profile(
+    active_profile: TrafficProfile,
+    count: Option<u32>,
+    duration_secs: Option<u64>,
+    opts: &RuntimeOptions,
+) -> RunSummary {
     let effective_target = active_profile.target.clone();
-
-    if opts.dry_run {
-        println!(
-            "[DRY RUN] Would run profile \"{}\" ({} → {})",
-            active_profile.name,
-            active_profile.protocol.display_name(),
-            effective_target
-        );
-        println!(
-            "  Jitter       : {:.0}% {}",
-            active_profile.jitter_percent,
-            active_profile.jitter_algorithm.display_name()
-        );
-        println!("  Timeout      : {}s", opts.timeout_secs);
-        println!(
-            "  Insecure TLS : {}",
-            if opts.insecure_tls { "Yes" } else { "No" }
-        );
-        println!(
-            "  Count limit  : {}",
-            args.count.map_or("none".to_string(), |c| c.to_string())
-        );
-        println!(
-            "  Duration     : {}",
-            args.duration
-                .map_or("none".to_string(), |d| format!("{}s", d))
-        );
-        return Ok(());
-    }
 
     tracing::info!(
         profile = %active_profile.name,
@@ -347,16 +283,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const MAX_BACKOFF_SECS: u64 = 300;
 
     loop {
-        // Check count limit.
-        if let Some(count) = args.count {
-            if attempts >= count {
+        if let Some(c) = count {
+            if attempts >= c {
                 break;
             }
         }
 
-        // Check duration limit.
-        if let Some(dur_secs) = args.duration {
-            if start_inst.elapsed().as_secs() >= dur_secs {
+        if let Some(dur) = duration_secs {
+            if start_inst.elapsed().as_secs() >= dur {
                 break;
             }
         }
@@ -365,19 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let attempt_num = attempts;
 
         let beacon_target = active_profile.get_target().to_string();
-
-        let result = match active_profile.protocol {
-            Protocol::Http => network::send_http(&active_profile, &opts).await,
-            Protocol::Https => network::send_https(&active_profile, &opts).await,
-            Protocol::Dns => network::send_dns(&active_profile, &opts).await,
-            Protocol::Icmp => network::send_icmp(&active_profile, &opts).await,
-            Protocol::Smb => network::send_smb(&active_profile, &opts).await,
-            Protocol::WebSocket => network::send_websocket(&active_profile, &opts).await,
-            Protocol::Smtp => network::send_smtp(&active_profile, &opts).await,
-            Protocol::Ftp => network::send_ftp(&active_profile, &opts).await,
-            Protocol::Ldap => network::send_ldap(&active_profile, &opts).await,
-            Protocol::Rdp => network::send_rdp(&active_profile, &opts).await,
-        };
+        let result = dispatch(&active_profile, opts).await;
 
         match result {
             Ok(_) => {
@@ -416,10 +338,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         delays.push(delay_secs);
         tracing::debug!(delay_secs, "sleeping");
 
-        // Clamp sleep to remaining duration when --duration is set.
-        let sleep_dur = if let Some(dur_secs) = args.duration {
+        // Clamp sleep to remaining duration when a duration limit is set.
+        let sleep_dur = if let Some(dur) = duration_secs {
             let elapsed = start_inst.elapsed().as_secs();
-            let remaining = dur_secs.saturating_sub(elapsed);
+            let remaining = dur.saturating_sub(elapsed);
             if remaining == 0 {
                 break;
             }
@@ -431,8 +353,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(sleep_dur).await;
 
         // Re-check duration after sleeping.
-        if let Some(dur_secs) = args.duration {
-            if start_inst.elapsed().as_secs() >= dur_secs {
+        if let Some(dur) = duration_secs {
+            if start_inst.elapsed().as_secs() >= dur {
                 break;
             }
         }
@@ -451,7 +373,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         0.0
     };
 
-    let summary = RunSummary {
+    RunSummary {
         profile: active_profile.name.clone(),
         protocol: active_profile.protocol.display_name().to_string(),
         target: effective_target,
@@ -465,7 +387,217 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         runtime_secs: total_runtime.as_secs_f64(),
         dry_run: opts.dry_run,
         insecure_tls: opts.insecure_tls,
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+
+    let _log_guard = logging::init(
+        args.verbose,
+        args.quiet,
+        args.json,
+        args.log_file.as_deref(),
+    );
+
+    let opts = RuntimeOptions {
+        insecure_tls: args.insecure_tls,
+        timeout_secs: args.timeout,
+        dry_run: args.dry_run,
+        json_output: args.json,
+        target_override: args.target.clone(),
     };
+
+    // Load built-in profiles then merge external ones (later wins on name collision).
+    let mut all_profiles = profiles::get_profiles();
+    let mut all_sequences: HashMap<String, Vec<String>> = HashMap::new();
+
+    if let Some(ref path) = args.config {
+        match config::load_from_file(path) {
+            Ok(loaded) => {
+                all_profiles = merge_profiles(all_profiles, loaded.profiles);
+                all_sequences.extend(loaded.sequences);
+            }
+            Err(e) => {
+                eprintln!("[X] Failed to load config file {:?}: {}", path, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if let Some(ref dir) = args.config_dir {
+        match config::load_from_dir(dir) {
+            Ok(loaded) => {
+                all_profiles = merge_profiles(all_profiles, loaded.profiles);
+                all_sequences.extend(loaded.sequences);
+            }
+            Err(e) => {
+                eprintln!("[X] Failed to load config dir {:?}: {}", dir, e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if args.list {
+        if args.json {
+            print_list_json(&all_profiles);
+        } else {
+            print_list(&all_profiles);
+        }
+        return Ok(());
+    }
+
+    // Export a Sigma rule and exit.
+    if args.export_sigma {
+        let profile = match all_profiles.iter().find(|p| p.name == args.profile) {
+            Some(p) => p,
+            None => {
+                eprintln!("[X] Profile '{}' not found for Sigma export.", args.profile);
+                std::process::exit(1);
+            }
+        };
+        println!("{}", sigma::generate(profile));
+        return Ok(());
+    }
+
+    // Sequence mode: run multiple profiles in order.
+    if let Some(ref seq_arg) = args.sequence {
+        let profile_names: Vec<String> = if seq_arg.contains(',') {
+            seq_arg.split(',').map(|s| s.trim().to_string()).collect()
+        } else {
+            match all_sequences.get(seq_arg.as_str()) {
+                Some(names) => names.clone(),
+                None => {
+                    eprintln!("[X] Sequence '{}' not found in config.", seq_arg);
+                    std::process::exit(1);
+                }
+            }
+        };
+
+        let global_start = Instant::now();
+
+        for name in &profile_names {
+            // Enforce global duration limit.
+            if let Some(total_dur) = args.duration {
+                let elapsed = global_start.elapsed().as_secs();
+                if elapsed >= total_dur {
+                    break;
+                }
+            }
+
+            let base_profile = match all_profiles.iter().find(|p| p.name == *name) {
+                Some(p) => p.clone(),
+                None => {
+                    eprintln!("[X] Profile '{}' not found in sequence, skipping.", name);
+                    continue;
+                }
+            };
+
+            let mut active_profile = base_profile;
+            if let Some(ref target) = opts.target_override {
+                active_profile.target = target.clone();
+                active_profile.targets.clear();
+            }
+
+            if opts.dry_run {
+                println!(
+                    "[DRY RUN] Would run profile \"{}\" ({} → {})",
+                    active_profile.name,
+                    active_profile.protocol.display_name(),
+                    active_profile.target
+                );
+                continue;
+            }
+
+            let per_profile_count = args.count.or(Some(1));
+            let per_profile_duration = args.duration.map(|total_dur| {
+                let elapsed = global_start.elapsed().as_secs();
+                total_dur.saturating_sub(elapsed)
+            });
+
+            if per_profile_duration == Some(0) {
+                break;
+            }
+
+            let summary = run_profile(
+                active_profile,
+                per_profile_count,
+                per_profile_duration,
+                &opts,
+            )
+            .await;
+
+            if opts.json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&summary).unwrap_or_default()
+                );
+            } else {
+                print_summary_human(&summary);
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Single-profile mode.
+    let profile = match all_profiles.iter().find(|p| p.name == args.profile) {
+        Some(p) => p,
+        None => match all_profiles.first() {
+            Some(p) => {
+                tracing::warn!(
+                    requested = %args.profile,
+                    fallback = %p.name,
+                    "profile not found, falling back"
+                );
+                p
+            }
+            None => {
+                eprintln!("[X] No profiles available. Exiting.");
+                std::process::exit(1);
+            }
+        },
+    };
+
+    let mut active_profile = profile.clone();
+    if let Some(ref target) = opts.target_override {
+        active_profile.target = target.clone();
+        active_profile.targets.clear();
+    }
+
+    let effective_target = active_profile.target.clone();
+
+    if opts.dry_run {
+        println!(
+            "[DRY RUN] Would run profile \"{}\" ({} → {})",
+            active_profile.name,
+            active_profile.protocol.display_name(),
+            effective_target
+        );
+        println!(
+            "  Jitter       : {:.0}% {}",
+            active_profile.jitter_percent,
+            active_profile.jitter_algorithm.display_name()
+        );
+        println!("  Timeout      : {}s", opts.timeout_secs);
+        println!(
+            "  Insecure TLS : {}",
+            if opts.insecure_tls { "Yes" } else { "No" }
+        );
+        println!(
+            "  Count limit  : {}",
+            args.count.map_or("none".to_string(), |c| c.to_string())
+        );
+        println!(
+            "  Duration     : {}",
+            args.duration
+                .map_or("none".to_string(), |d| format!("{}s", d))
+        );
+        return Ok(());
+    }
+
+    let summary = run_profile(active_profile, args.count, args.duration, &opts).await;
 
     if opts.json_output {
         println!("{}", serde_json::to_string_pretty(&summary)?);

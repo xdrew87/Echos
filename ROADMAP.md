@@ -6,17 +6,13 @@ This document tracks planned improvements for Echos. Items are not ordered by pr
 
 ## In Progress / Near-term
 
-### Profile sequencing
+### Detection rule export (Suricata / Snort)
 
-Run multiple profiles in sequence or in parallel from a single config file, to simulate multi-stage intrusion traffic chains.
+Sigma export is live as of v0.4.0. Suricata and Snort rule generation from profile definitions is next.
 
 ---
 
 ## Medium-term
-
-### Detection rule export
-
-Generate Sigma, Suricata, or Snort rules directly from profile definitions. Each profile encodes the exact headers and timing that a detection rule needs to match.
 
 ### HTTP/2 support
 
@@ -59,6 +55,11 @@ Native integration with detection platforms — push a profile run and automatic
 A simple local web interface for configuring and launching profiles without using the CLI. Primarily aimed at defenders who are not comfortable with command-line tools.
 
 ---
+
+## Completed (v0.4.0)
+
+- ✅ Profile sequencing — `--sequence "Cobalt,APT28"` (inline) or `--sequence recon-chain` (named sequence from TOML config)
+- ✅ Sigma rule export — `--export-sigma --profile <name>` generates an experimental Sigma YAML detection rule
 
 ## Completed (v0.3.0)
 

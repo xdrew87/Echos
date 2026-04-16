@@ -21,8 +21,23 @@ struct ProfileConfig {
 }
 
 #[derive(Debug, Deserialize)]
+struct SequenceConfig {
+    name: String,
+    profiles: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ConfigFile {
+    #[serde(default)]
     profiles: Vec<ProfileConfig>,
+    #[serde(default)]
+    sequences: Vec<SequenceConfig>,
+}
+
+/// Loaded configuration: profiles and named sequences.
+pub struct LoadedConfig {
+    pub profiles: Vec<TrafficProfile>,
+    pub sequences: HashMap<String, Vec<String>>,
 }
 
 fn parse_protocol(s: &str) -> Result<Protocol, String> {
@@ -82,7 +97,7 @@ fn convert(pc: ProfileConfig, source_path: &Path) -> Result<TrafficProfile, Stri
     Ok(profile)
 }
 
-pub fn load_from_file(path: &Path) -> Result<Vec<TrafficProfile>, Box<dyn Error>> {
+pub fn load_from_file(path: &Path) -> Result<LoadedConfig, Box<dyn Error>> {
     let content = std::fs::read_to_string(path)?;
     let config: ConfigFile = toml::from_str(&content)?;
 
@@ -90,11 +105,23 @@ pub fn load_from_file(path: &Path) -> Result<Vec<TrafficProfile>, Box<dyn Error>
     for pc in config.profiles {
         profiles.push(convert(pc, path)?);
     }
-    Ok(profiles)
+
+    let sequences = config
+        .sequences
+        .into_iter()
+        .map(|s| (s.name, s.profiles))
+        .collect();
+
+    Ok(LoadedConfig {
+        profiles,
+        sequences,
+    })
 }
 
-pub fn load_from_dir(dir: &Path) -> Result<Vec<TrafficProfile>, Box<dyn Error>> {
+pub fn load_from_dir(dir: &Path) -> Result<LoadedConfig, Box<dyn Error>> {
     let mut profiles = Vec::new();
+    let mut sequences = HashMap::new();
+
     let mut paths: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
@@ -103,7 +130,14 @@ pub fn load_from_dir(dir: &Path) -> Result<Vec<TrafficProfile>, Box<dyn Error>> 
     paths.sort();
 
     for path in paths {
-        profiles.extend(load_from_file(&path)?);
+        let loaded = load_from_file(&path)?;
+        profiles.extend(loaded.profiles);
+        // Later files override earlier on name collision.
+        sequences.extend(loaded.sequences);
     }
-    Ok(profiles)
+
+    Ok(LoadedConfig {
+        profiles,
+        sequences,
+    })
 }
