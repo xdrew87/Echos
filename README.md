@@ -79,7 +79,7 @@ Requires Rust 1.70+.
 ### `--list`
 
 ```
-Available Profiles (10 total — 10 built-in, 0 from config)
+Available Profiles (18 total — 18 built-in, 0 from config)
 
   NAME                   PROTOCOL      DELAY    JITTER    ALGORITHM       ROTATING     HEADERS    SOURCE
   ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -93,6 +93,14 @@ Available Profiles (10 total — 10 built-in, 0 from config)
   SMB Beacon             SMB           120s     10%       Uniform         No           0          Built-in
   WebSocket Beacon       WebSocket     15s      15%       Uniform         No           0          Built-in
   SMTP Beacon            SMTP          90s      10%       Uniform         No           0          Built-in
+  Sandworm               ICMP          180s     20%       Sinusoidal      No           0          Built-in
+  Turla                  HTTP          45s      15%       Gaussian        No           6          Built-in
+  Carbanak               HTTPS         120s     10%       Gaussian        No           6          Built-in
+  CS DNS Beacon          DNS           20s      30%       Uniform         Yes          0          Built-in
+  Meterpreter            HTTP          5s       25%       Gaussian        No           5          Built-in
+  FTP Beacon             FTP           90s      10%       Uniform         No           0          Built-in
+  LDAP Beacon            LDAP          60s      10%       Uniform         No           0          Built-in
+  RDP Beacon             RDP           30s      10%       Uniform         No           0          Built-in
 
 Target: use --target to override any profile's destination at runtime.
 ```
@@ -352,6 +360,14 @@ External profiles with the same name as a built-in profile silently override the
 | SMB Beacon | SMB | 120 s | 10% | Uniform | SMB negotiate probe on port 445 |
 | WebSocket Beacon | WebSocket | 15 s | 15% | Uniform | Single text frame over WS |
 | SMTP Beacon | SMTP | 90 s | 10% | Uniform | EHLO probe without sending mail |
+| Sandworm | ICMP | 180 s | 20% | Sinusoidal | GRU-style slow ICMP, time-of-day jitter |
+| Turla | HTTP | 45 s | 15% | Gaussian | FSB-style obfuscation headers |
+| Carbanak | HTTPS | 120 s | 10% | Gaussian | Banking-industry UA strings |
+| CS DNS Beacon | DNS | 20 s | 30% | Uniform | Cobalt Strike DNS, rotating subdomains |
+| Meterpreter | HTTP | 5 s | 25% | Gaussian | Meterpreter reverse_http POST pattern |
+| FTP Beacon | FTP | 90 s | 10% | Uniform | Outbound FTP banner probe, port 21 |
+| LDAP Beacon | LDAP | 60 s | 10% | Uniform | Anonymous LDAP bind probe, port 389 |
+| RDP Beacon | RDP | 30 s | 10% | Uniform | RDP connection request probe, port 3389 |
 
 ---
 

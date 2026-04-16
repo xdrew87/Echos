@@ -6,21 +6,6 @@ This document tracks planned improvements for Echos. Items are not ordered by pr
 
 ## In Progress / Near-term
 
-### More profiles
-Additional threat actor and tool emulation profiles:
-
-- Sandworm — slow ICMP with time-of-day variation
-- Turla — HTTP with custom encoding headers
-- Carbanak — HTTPS with banking-industry UA strings
-- Cobalt Strike DNS Beacon — subdomain-based lookup pattern
-- Generic meterpreter-style HTTP POST beacon
-
-### Additional protocols
-
-- **FTP** — passive mode probe for detecting outbound FTP from workstations
-- **LDAP** — bind request probe for detecting unauthorized LDAP queries
-- **RDP** — TCP connect probe for lateral movement detection testing
-
 ### Profile sequencing
 
 Run multiple profiles in sequence or in parallel from a single config file, to simulate multi-stage intrusion traffic chains.
@@ -74,6 +59,17 @@ Native integration with detection platforms — push a profile run and automatic
 A simple local web interface for configuring and launching profiles without using the CLI. Primarily aimed at defenders who are not comfortable with command-line tools.
 
 ---
+
+## Completed (v0.3.0)
+
+- ✅ Sandworm profile — slow ICMP with sinusoidal time-of-day jitter (GRU-style)
+- ✅ Turla profile — HTTP with obfuscation headers (FSB-style)
+- ✅ Carbanak profile — HTTPS with banking-industry UA strings
+- ✅ CS DNS Beacon profile — rotating subdomain DNS beacon (Cobalt Strike DNS pattern)
+- ✅ Meterpreter profile — HTTP POST-style beacon (Metasploit meterpreter pattern)
+- ✅ FTP protocol — anonymous banner probe on port 21
+- ✅ LDAP protocol — anonymous bind request probe on port 389
+- ✅ RDP protocol — X.224 connection request probe on port 3389
 
 ## Completed (v0.2.0)
 

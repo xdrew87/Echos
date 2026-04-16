@@ -215,3 +215,109 @@ pub async fn send_smtp(
     let _ = stream.write_all(b"QUIT\r\n").await;
     Ok(())
 }
+
+/// Send an FTP probe: connect to port 21, read the banner, send USER anonymous, then QUIT.
+/// Validates detection of outbound FTP connections from workstation endpoints.
+pub async fn send_ftp(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
+    let host = profile
+        .target
+        .trim_start_matches("ftp://")
+        .split(':')
+        .next()
+        .unwrap_or(&profile.target);
+    let addr = format!("{host}:21");
+
+    let mut buf = [0u8; 512];
+    let connect_timeout = Duration::from_secs(opts.timeout_secs);
+    let mut stream = tokio::time::timeout(connect_timeout, TcpStream::connect(&addr)).await??;
+    tracing::debug!(addr, "FTP connection established");
+
+    // Read 220 banner
+    let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
+    tracing::debug!(addr, bytes = n, "FTP banner received");
+
+    stream.write_all(b"USER anonymous\r\n").await?;
+    let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
+    tracing::debug!(addr, bytes = n, "FTP USER response received");
+
+    let _ = stream.write_all(b"QUIT\r\n").await;
+    Ok(())
+}
+
+/// Send a minimal LDAP anonymous bind request on port 389 and read the response.
+/// Validates detection of unauthorized LDAP enumeration from non-domain-controller hosts.
+pub async fn send_ldap(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
+    let host = profile
+        .target
+        .trim_start_matches("ldap://")
+        .split(':')
+        .next()
+        .unwrap_or(&profile.target);
+    let addr = format!("{host}:389");
+
+    let connect_timeout = Duration::from_secs(opts.timeout_secs);
+    let mut stream = tokio::time::timeout(connect_timeout, TcpStream::connect(&addr)).await??;
+    tracing::debug!(addr, "LDAP connection established");
+
+    // Minimal LDAPv3 anonymous bind request (BER encoded):
+    // Sequence { messageID=1, BindRequest { version=3, name="", SimpleAuth="" } }
+    let bind_request: &[u8] = &[
+        0x30, 0x0c, // SEQUENCE, length 12
+        0x02, 0x01, 0x01, // INTEGER messageID = 1
+        0x60, 0x07, // APPLICATION[0] BindRequest, length 7
+        0x02, 0x01, 0x03, // INTEGER version = 3
+        0x04, 0x00, // OCTET STRING name = "" (anonymous)
+        0x80, 0x00, // [0] SimpleAuth = "" (anonymous)
+    ];
+    stream.write_all(bind_request).await?;
+
+    let mut buf = [0u8; 128];
+    let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
+    tracing::debug!(addr, bytes = n, "LDAP bind response received");
+
+    Ok(())
+}
+
+/// Send an RDP connection request (X.224 TPKT over TCP) on port 3389 and read the response.
+/// Validates detection of internal RDP lateral movement reconnaissance.
+pub async fn send_rdp(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
+    let host = profile
+        .target
+        .trim_start_matches("rdp://")
+        .split(':')
+        .next()
+        .unwrap_or(&profile.target);
+    let addr = format!("{host}:3389");
+
+    let connect_timeout = Duration::from_secs(opts.timeout_secs);
+    let mut stream = tokio::time::timeout(connect_timeout, TcpStream::connect(&addr)).await??;
+    tracing::debug!(addr, "RDP connection established");
+
+    // Minimal TPKT + X.224 Connection Request (CR) PDU.
+    // This is a standard RDP negotiation packet that any RDP listener will respond to.
+    // TPKT header: version=3, reserved=0, length=19 (big-endian)
+    // X.224: length indicator=14, type=CR (0xe0), dst-ref=0, src-ref=0, class=0
+    // RDP negotiation request: type=0x01, flags=0x00, length=8, protocols=PROTOCOL_RDP (0)
+    let rdp_connection_request: &[u8] = &[
+        // TPKT header (4 bytes)
+        0x03, 0x00, 0x00, 0x13, // X.224 Connection Request (7 bytes)
+        0x0e, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, // RDP Negotiation Request (8 bytes)
+        0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    stream.write_all(rdp_connection_request).await?;
+
+    let mut buf = [0u8; 128];
+    let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf)).await??;
+    tracing::debug!(addr, bytes = n, "RDP connection response received");
+
+    Ok(())
+}

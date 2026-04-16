@@ -374,6 +374,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Protocol::Smb => network::send_smb(&active_profile, &opts).await,
             Protocol::WebSocket => network::send_websocket(&active_profile, &opts).await,
             Protocol::Smtp => network::send_smtp(&active_profile, &opts).await,
+            Protocol::Ftp => network::send_ftp(&active_profile, &opts).await,
+            Protocol::Ldap => network::send_ldap(&active_profile, &opts).await,
+            Protocol::Rdp => network::send_rdp(&active_profile, &opts).await,
         };
 
         match result {

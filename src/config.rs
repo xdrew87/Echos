@@ -34,8 +34,11 @@ fn parse_protocol(s: &str) -> Result<Protocol, String> {
         "smb" => Ok(Protocol::Smb),
         "websocket" | "ws" => Ok(Protocol::WebSocket),
         "smtp" => Ok(Protocol::Smtp),
+        "ftp" => Ok(Protocol::Ftp),
+        "ldap" => Ok(Protocol::Ldap),
+        "rdp" => Ok(Protocol::Rdp),
         other => Err(format!(
-            "unknown protocol '{}'. Valid values: http, https, dns, icmp, smb, websocket, smtp",
+            "unknown protocol '{}'. Valid values: http, https, dns, icmp, smb, websocket, smtp, ftp, ldap, rdp",
             other
         )),
     }

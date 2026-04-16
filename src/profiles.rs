@@ -37,6 +37,9 @@ pub enum Protocol {
     Smb,
     WebSocket,
     Smtp,
+    Ftp,
+    Ldap,
+    Rdp,
 }
 
 impl Protocol {
@@ -49,6 +52,9 @@ impl Protocol {
             Protocol::Smb => "SMB",
             Protocol::WebSocket => "WebSocket",
             Protocol::Smtp => "SMTP",
+            Protocol::Ftp => "FTP",
+            Protocol::Ldap => "LDAP",
+            Protocol::Rdp => "RDP",
         }
     }
 }
@@ -258,6 +264,112 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     // --- SMTP Beacon ---
     let smtp_profile = TrafficProfile::new("SMTP Beacon", "127.0.0.1:25", 90, 10.0, Protocol::Smtp);
 
+    // --- Sandworm (Voodoo Bear) ---
+    // Russian GRU-linked APT. Uses slow ICMP beaconing with sinusoidal time-of-day jitter
+    // to blend into background network noise during off-hours. Validates ICMP C2 detection
+    // rules that trigger on unusual ping frequency from internal hosts.
+    let sandworm = TrafficProfile::new("Sandworm", "8.8.8.8", 180, 20.0, Protocol::Icmp)
+        .with_jitter_algorithm(JitterAlgorithm::Sinusoidal);
+
+    // --- Turla (Snake) ---
+    // FSB-linked APT. Uses HTTP with custom encoding and obfuscation headers to disguise
+    // C2 traffic as legitimate web requests. Validates detection of anomalous HTTP headers
+    // from workstation-class endpoints.
+    let mut turla = TrafficProfile::new("Turla", "http://127.0.0.1:8080", 45, 15.0, Protocol::Http)
+        .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    turla.add_header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1",
+    );
+    turla.add_header(
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    );
+    turla.add_header("Accept-Language", "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3");
+    turla.add_header("Accept-Encoding", "gzip, deflate");
+    turla.add_header("X-Requested-With", "XMLHttpRequest");
+    turla.add_header(
+        "Content-Type",
+        "application/x-www-form-urlencoded; charset=UTF-8",
+    );
+
+    // --- Carbanak (FIN7 banking variant) ---
+    // Criminal APT targeting financial institutions. HTTPS beaconing with banking-industry
+    // UA strings mimicking internal banking software. Validates HTTPS C2 detection for
+    // financial sector environments.
+    let mut carbanak = TrafficProfile::new(
+        "Carbanak",
+        "https://127.0.0.1:8443",
+        120,
+        10.0,
+        Protocol::Https,
+    )
+    .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    carbanak.add_header(
+        "User-Agent",
+        "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; .NET CLR 2.0.50727)",
+    );
+    carbanak.add_header("Accept", "application/json, text/javascript, */*; q=0.01");
+    carbanak.add_header("Accept-Language", "en-US,en;q=0.5");
+    carbanak.add_header("X-Requested-With", "XMLHttpRequest");
+    carbanak.add_header(
+        "Content-Type",
+        "application/x-www-form-urlencoded; charset=UTF-8",
+    );
+    carbanak.add_header("Referer", "https://online.bank.internal/dashboard");
+
+    // --- Cobalt Strike DNS Beacon ---
+    // Simulates Cobalt Strike's DNS staging/beacon pattern using subdomain lookups.
+    // Rotates across multiple subdomains to mimic DGA-style DNS C2. Validates DNS
+    // exfiltration and DNS C2 detection rules that look for high-frequency subdomain queries.
+    let mut cs_dns = TrafficProfile::new(
+        "CS DNS Beacon",
+        "beacon.example.com",
+        20,
+        30.0,
+        Protocol::Dns,
+    )
+    .with_jitter_algorithm(JitterAlgorithm::Uniform);
+    cs_dns.add_target("stage.example.com");
+    cs_dns.add_target("cdn.example.com");
+    cs_dns.add_target("api.example.com");
+
+    // --- Meterpreter HTTP ---
+    // Metasploit meterpreter-style HTTP POST beacon. Uses a generic browser UA with
+    // POST-style content headers, mimicking the meterpreter reverse_http stager.
+    // Validates detection of meterpreter-pattern HTTP traffic from endpoints.
+    let mut meterpreter = TrafficProfile::new(
+        "Meterpreter",
+        "http://127.0.0.1:4444",
+        5,
+        25.0,
+        Protocol::Http,
+    )
+    .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    meterpreter.add_header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko",
+    );
+    meterpreter.add_header("Content-Type", "application/octet-stream");
+    meterpreter.add_header("Accept", "*/*");
+    meterpreter.add_header("Connection", "Keep-Alive");
+    meterpreter.add_header("Cache-Control", "no-cache");
+
+    // --- FTP Beacon ---
+    // Passive-mode FTP probe on port 21. Validates detection of outbound FTP connections
+    // from workstation endpoints — a strong indicator of data staging or legacy exfiltration.
+    let ftp_profile = TrafficProfile::new("FTP Beacon", "127.0.0.1", 90, 10.0, Protocol::Ftp);
+
+    // --- LDAP Beacon ---
+    // Anonymous LDAP bind request probe on port 389. Validates detection of unauthorized
+    // LDAP enumeration from non-DC hosts — common in credential harvesting and AD recon.
+    let ldap_profile = TrafficProfile::new("LDAP Beacon", "127.0.0.1", 60, 10.0, Protocol::Ldap);
+
+    // --- RDP Beacon ---
+    // TCP connect probe to port 3389 simulating lateral movement reconnaissance.
+    // Validates detection of internal RDP scanning from unexpected source hosts.
+    let rdp_profile = TrafficProfile::new("RDP Beacon", "127.0.0.1", 30, 10.0, Protocol::Rdp);
+
     vec![
         cobalt,
         apt28,
@@ -269,6 +381,14 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         smb_profile,
         ws_profile,
         smtp_profile,
+        sandworm,
+        turla,
+        carbanak,
+        cs_dns,
+        meterpreter,
+        ftp_profile,
+        ldap_profile,
+        rdp_profile,
     ]
 }
 
