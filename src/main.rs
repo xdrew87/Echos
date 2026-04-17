@@ -10,6 +10,8 @@ mod network;
 mod profiles;
 mod runtime;
 mod sigma;
+mod snort;
+mod suricata;
 
 use crate::profiles::{Protocol, TrafficProfile};
 use crate::runtime::RuntimeOptions;
@@ -23,11 +25,11 @@ use tokio::time::sleep;
 #[derive(Parser)]
 #[command(
     name = "echos",
-    version = "0.4.0",
+    version = "0.5.0",
     about = "Network beacon emulator for EDR/NDR detection lab testing"
 )]
 #[command(
-    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28"
+    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28\n  echos --export-suricata --profile Cobalt > cobalt.rules\n  echos --export-snort --profile \"RDP Beacon\""
 )]
 struct Args {
     #[arg(
@@ -106,6 +108,15 @@ struct Args {
         help = "Export a Sigma detection rule for the selected profile and exit"
     )]
     export_sigma: bool,
+
+    #[arg(
+        long,
+        help = "Export a Suricata rule for the selected profile and exit"
+    )]
+    export_suricata: bool,
+
+    #[arg(long, help = "Export a Snort 3 rule for the selected profile and exit")]
+    export_snort: bool,
 }
 
 #[derive(Serialize)]
@@ -458,6 +469,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         println!("{}", sigma::generate(profile));
+        return Ok(());
+    }
+
+    // Export a Suricata rule and exit.
+    if args.export_suricata {
+        let idx = all_profiles
+            .iter()
+            .position(|p| p.name == args.profile)
+            .unwrap_or(0);
+        let profile = match all_profiles.iter().find(|p| p.name == args.profile) {
+            Some(p) => p,
+            None => {
+                eprintln!(
+                    "[X] Profile '{}' not found for Suricata export.",
+                    args.profile
+                );
+                std::process::exit(1);
+            }
+        };
+        println!("{}", suricata::generate(profile, idx));
+        return Ok(());
+    }
+
+    // Export a Snort 3 rule and exit.
+    if args.export_snort {
+        let idx = all_profiles
+            .iter()
+            .position(|p| p.name == args.profile)
+            .unwrap_or(0);
+        let profile = match all_profiles.iter().find(|p| p.name == args.profile) {
+            Some(p) => p,
+            None => {
+                eprintln!("[X] Profile '{}' not found for Snort export.", args.profile);
+                std::process::exit(1);
+            }
+        };
+        println!("{}", snort::generate(profile, idx));
         return Ok(());
     }
 

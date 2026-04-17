@@ -6,14 +6,6 @@ This document tracks planned improvements for Echos. Items are not ordered by pr
 
 ## In Progress / Near-term
 
-### Detection rule export (Suricata / Snort)
-
-Sigma export is live as of v0.4.0. Suricata and Snort rule generation from profile definitions is next.
-
----
-
-## Medium-term
-
 ### HTTP/2 support
 
 The current HTTPS implementation uses HTTP/1.1. HTTP/2 changes TLS fingerprint characteristics relevant to some JA3/JA4 detections.
@@ -55,6 +47,11 @@ Native integration with detection platforms — push a profile run and automatic
 A simple local web interface for configuring and launching profiles without using the CLI. Primarily aimed at defenders who are not comfortable with command-line tools.
 
 ---
+
+## Completed (v0.5.0)
+
+- ✅ Suricata rule export — `--export-suricata --profile <name>` generates an experimental Suricata `.rules` detection rule using sticky buffer keywords
+- ✅ Snort 3 rule export — `--export-snort --profile <name>` generates an experimental Snort 3 detection rule
 
 ## Completed (v0.4.0)
 

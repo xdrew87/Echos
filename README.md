@@ -1,7 +1,7 @@
 # Echos
 
 [![CI](https://github.com/xdrew87/Echos/actions/workflows/ci.yml/badge.svg)](https://github.com/xdrew87/Echos/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/xdrew87/Echos/releases)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue)](https://github.com/xdrew87/Echos/releases)
 [![Language](https://img.shields.io/badge/language-Rust-orange?logo=rust)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)](https://github.com/xdrew87/Echos/releases)
@@ -35,6 +35,7 @@ Use it to answer questions like:
 - **External TOML config** — define custom profiles without touching source code
 - **Profile sequencing** — `--sequence "Cobalt,APT28"` or named sequences from config
 - **Sigma rule export** — `--export-sigma --profile <name>` prints a ready-to-tune Sigma YAML rule
+- **Suricata & Snort rule export** — `--export-suricata` / `--export-snort` generate IDS rules from profile definitions
 - **Structured logging** — human-readable or JSON, with optional file output
 - **Exponential backoff** — kicks in after 3 consecutive beacon failures, caps at 300 s
 - **Rotating target pools** — simulate DGA/fast-flux by specifying multiple targets per profile
@@ -200,6 +201,8 @@ JSON summary (end of run):
 | `--config-dir <DIR>` | — | Load profiles from all `.toml` files in a directory |
 | `--sequence <NAMES>` | — | Run profiles in sequence: `"Cobalt,APT28"` or a named sequence from config |
 | `--export-sigma` | — | Print a Sigma YAML detection rule for the selected profile and exit |
+| `--export-suricata` | — | Print a Suricata `.rules` detection rule for the selected profile and exit |
+| `--export-snort` | — | Print a Snort 3 detection rule for the selected profile and exit |
 | `--json` | — | Emit structured JSON logs and output summary as JSON |
 | `--verbose` | — | Show debug-level details |
 | `--quiet` | — | Show only warnings, errors, and the final summary |
@@ -286,6 +289,39 @@ Rules are experimental — review and tune before deploying in production. Use w
 ```bash
 echos --config examples/echos.toml --export-sigma --profile "My Custom Profile"
 ```
+
+---
+
+## Suricata & Snort Export
+
+Generate experimental Suricata or Snort 3 IDS rules from any profile definition:
+
+```bash
+echos --export-suricata --profile Cobalt > cobalt.rules
+echos --export-snort --profile APT28
+```
+
+Example Suricata output (`--export-suricata --profile Cobalt`):
+```
+# Echos - Suricata Rules for profile: Cobalt
+# Protocol: HTTP
+# Generated: 2025-01-15
+# Status: experimental - review and tune before production use
+# https://github.com/xdrew87/Echos
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"Echos - Cobalt"; flow:established,to_server; http.user_agent; content:"Mozilla/5.0 (Windows NT 10.0; Win64; x64)"; nocase; classtype:trojan-activity; sid:9000001; rev:1; metadata:profile cobalt, tool Echos, protocol http;)
+```
+
+Example Snort 3 output (`--export-snort --profile APT28`):
+```
+# Echos - Snort 3 Rules for profile: APT28
+# Protocol: DNS
+# Generated: 2025-01-15
+# Status: experimental - review and tune before production use
+# https://github.com/xdrew87/Echos
+alert udp $HOME_NET any -> any 53 (msg:"Echos - APT28 DNS Beacon"; content:"example.com"; nocase; classtype:trojan-activity; sid:9100101; rev:1; metadata:profile apt28, tool Echos, protocol dns;)
+```
+
+Suricata rules use sticky buffer keywords (`dns.query`, `http.user_agent`, `http.content_type`) for accurate protocol-layer matching. Snort 3 rules use `http_header` for UA matching and raw UDP payload matching for DNS (tune before production). SID ranges: Suricata `9_000_000+`, Snort `9_100_000+`.
 
 ---
 
