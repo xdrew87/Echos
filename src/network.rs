@@ -1,6 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use hickory_resolver::config::*;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::Resolver;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::error::Error;
 use std::str::FromStr;
@@ -65,8 +64,8 @@ pub async fn send_dns(
     _opts: &RuntimeOptions,
 ) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
-    let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default());
-    let response = resolver.lookup_ip(target).await?;
+    let resolver = Resolver::builder_tokio()?.build()?;
+    let response: hickory_resolver::lookup_ip::LookupIp = resolver.lookup_ip(target).await?;
     let ips: Vec<std::net::IpAddr> = response.iter().collect();
     tracing::debug!(target, ?ips, "DNS lookup result");
     Ok(())
