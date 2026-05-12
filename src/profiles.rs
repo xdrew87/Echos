@@ -32,6 +32,7 @@ impl JitterAlgorithm {
 pub enum Protocol {
     Http,
     Https,
+    Http2,
     Dns,
     Icmp,
     Smb,
@@ -47,6 +48,7 @@ impl Protocol {
         match self {
             Protocol::Http => "HTTP",
             Protocol::Https => "HTTPS",
+            Protocol::Http2 => "HTTP/2",
             Protocol::Dns => "DNS",
             Protocol::Icmp => "ICMP",
             Protocol::Smb => "SMB",
@@ -71,7 +73,7 @@ pub struct TrafficProfile {
     pub jitter_percent: f64,
     pub jitter_algorithm: JitterAlgorithm,
     pub protocol: Protocol,
-    /// True when loaded from a user-supplied TOML config file.
+    /// True when loaded from a user-supplied config file.
     pub from_config: bool,
 }
 
@@ -249,6 +251,22 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     fin7.add_header("X-Real-IP", "203.0.113.42");
     fin7.add_header("CDN-Loop", "cloudflare");
 
+    // --- APT41 ---
+    // Chinese cyber espionage group known for HTTP/2-based C2 traffic. HTTP/2 binary framing
+    // and multiplexing can evade signature-based detection tuned for HTTP/1.1 plaintext patterns.
+    // Validates HTTP/2-aware IDS rules and JA3/JA4 fingerprint detection.
+    let mut apt41 =
+        TrafficProfile::new("APT41", "https://127.0.0.1:8443", 45, 15.0, Protocol::Http2)
+            .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    apt41.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    apt41.add_header(
+        "Accept",
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    );
+    apt41.add_header("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7");
+    apt41.add_header("Accept-Encoding", "gzip, deflate, br");
+    apt41.add_header("Cache-Control", "no-cache");
+
     // --- SMB Beacon ---
     let smb_profile = TrafficProfile::new("SMB Beacon", "127.0.0.1", 120, 10.0, Protocol::Smb);
 
@@ -378,6 +396,7 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         apt29,
         emotet,
         fin7,
+        apt41,
         smb_profile,
         ws_profile,
         smtp_profile,
@@ -452,5 +471,16 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(p.get_target(), "http://primary");
         }
+    }
+
+    #[test]
+    fn test_http2_profile_present() {
+        let profiles = get_profiles();
+        let apt41 = profiles
+            .iter()
+            .find(|p| p.name == "APT41")
+            .expect("APT41 profile missing");
+        assert!(matches!(&apt41.protocol, Protocol::Http2));
+        assert_eq!(apt41.protocol.display_name(), "HTTP/2");
     }
 }

@@ -18,6 +18,21 @@ fn build_headers(profile: &crate::profiles::TrafficProfile) -> Result<HeaderMap,
     Ok(headers)
 }
 
+fn build_tls_client(opts: &RuntimeOptions) -> Result<reqwest::Client, Box<dyn std::error::Error>> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(opts.timeout_secs))
+        .danger_accept_invalid_certs(opts.insecure_tls);
+
+    if let (Some(cert_path), Some(key_path)) = (&opts.mtls_cert, &opts.mtls_key) {
+        let mut pem = std::fs::read(cert_path)?;
+        pem.extend_from_slice(&std::fs::read(key_path)?);
+        let identity = reqwest::Identity::from_pem(&pem)?;
+        builder = builder.identity(identity);
+    }
+
+    Ok(builder.build()?)
+}
+
 pub async fn send_http(
     profile: &crate::profiles::TrafficProfile,
     _opts: &RuntimeOptions,
@@ -43,10 +58,7 @@ pub async fn send_https(
     opts: &RuntimeOptions,
 ) -> Result<(), Box<dyn Error>> {
     let target = profile.get_target();
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(opts.timeout_secs))
-        .danger_accept_invalid_certs(opts.insecure_tls)
-        .build()?;
+    let client = build_tls_client(opts)?;
     let res = client
         .get(target)
         .headers(build_headers(profile)?)
@@ -56,6 +68,36 @@ pub async fn send_https(
         return Err(format!("HTTPS {}", res.status()).into());
     }
     tracing::debug!(target, status = %res.status(), "HTTPS response received");
+    Ok(())
+}
+
+pub async fn send_http2(
+    profile: &crate::profiles::TrafficProfile,
+    opts: &RuntimeOptions,
+) -> Result<(), Box<dyn Error>> {
+    let target = profile.get_target();
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(opts.timeout_secs))
+        .danger_accept_invalid_certs(opts.insecure_tls)
+        .http2_adaptive_window(true);
+
+    if let (Some(cert_path), Some(key_path)) = (&opts.mtls_cert, &opts.mtls_key) {
+        let mut pem = std::fs::read(cert_path)?;
+        pem.extend_from_slice(&std::fs::read(key_path)?);
+        let identity = reqwest::Identity::from_pem(&pem)?;
+        builder = builder.identity(identity);
+    }
+
+    let client = builder.build()?;
+    let res = client
+        .get(target)
+        .headers(build_headers(profile)?)
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        return Err(format!("HTTP/2 {}", res.status()).into());
+    }
+    tracing::debug!(target, status = %res.status(), version = ?res.version(), "HTTP/2 response received");
     Ok(())
 }
 

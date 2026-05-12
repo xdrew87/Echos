@@ -82,7 +82,7 @@ fn escape_yaml(s: &str) -> String {
 fn build_tags(profile: &TrafficProfile) -> Vec<&'static str> {
     let mut tags = vec!["attack.command_and_control"];
     match &profile.protocol {
-        Protocol::Http | Protocol::Https | Protocol::WebSocket => {
+        Protocol::Http | Protocol::Https | Protocol::Http2 | Protocol::WebSocket => {
             tags.push("attack.t1071.001");
         }
         Protocol::Dns => {
@@ -116,7 +116,7 @@ fn build_tags(profile: &TrafficProfile) -> Vec<&'static str> {
 
 fn build_logsource(profile: &TrafficProfile) -> Vec<String> {
     match &profile.protocol {
-        Protocol::Http | Protocol::Https | Protocol::WebSocket => {
+        Protocol::Http | Protocol::Https | Protocol::Http2 | Protocol::WebSocket => {
             vec!["category: proxy".to_string()]
         }
         Protocol::Dns => {
@@ -130,7 +130,9 @@ fn build_logsource(profile: &TrafficProfile) -> Vec<String> {
 
 fn build_detection(profile: &TrafficProfile) -> Vec<String> {
     match &profile.protocol {
-        Protocol::Http | Protocol::Https | Protocol::WebSocket => http_detection(profile),
+        Protocol::Http | Protocol::Https | Protocol::Http2 | Protocol::WebSocket => {
+            http_detection(profile)
+        }
         Protocol::Dns => dns_detection(profile),
         Protocol::Icmp => icmp_detection(profile),
         Protocol::Smb => port_detection(445),
@@ -200,7 +202,7 @@ fn port_detection(port: u16) -> Vec<String> {
 
 fn build_fields(profile: &TrafficProfile) -> Vec<&'static str> {
     match &profile.protocol {
-        Protocol::Http | Protocol::Https | Protocol::WebSocket => {
+        Protocol::Http | Protocol::Https | Protocol::Http2 | Protocol::WebSocket => {
             vec![
                 "cs-useragent",
                 "cs-host",
@@ -305,5 +307,13 @@ mod tests {
         let yaml = generate(&p);
         assert!(yaml.contains("DestinationPort: 445"));
         assert!(yaml.contains("attack.t1021.002"));
+    }
+
+    #[test]
+    fn test_generate_http2_uses_http_tags() {
+        let p = TrafficProfile::new("APT41", "https://127.0.0.1:8443", 45, 15.0, Protocol::Http2);
+        let yaml = generate(&p);
+        assert!(yaml.contains("category: proxy"));
+        assert!(yaml.contains("attack.t1071.001"));
     }
 }

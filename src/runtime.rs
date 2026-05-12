@@ -7,6 +7,8 @@ pub struct RuntimeOptions {
     pub dry_run: bool,
     pub json_output: bool,
     pub target_override: Option<String>,
+    pub mtls_cert: Option<std::path::PathBuf>,
+    pub mtls_key: Option<std::path::PathBuf>,
 }
 
 impl Default for RuntimeOptions {
@@ -17,6 +19,8 @@ impl Default for RuntimeOptions {
             dry_run: false,
             json_output: false,
             target_override: None,
+            mtls_cert: None,
+            mtls_key: None,
         }
     }
 }

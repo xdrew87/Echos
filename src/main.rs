@@ -25,11 +25,11 @@ use tokio::time::sleep;
 #[derive(Parser)]
 #[command(
     name = "echos",
-    version = "0.5.0",
+    version = "0.6.0",
     about = "Network beacon emulator for EDR/NDR detection lab testing"
 )]
 #[command(
-    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28\n  echos --export-suricata --profile Cobalt > cobalt.rules\n  echos --export-snort --profile \"RDP Beacon\""
+    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --config examples/echos.yaml --profile \"YAML HTTP/2 Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --profile APT41 --mtls-cert client.crt.pem --mtls-key client.key.pem --count 1\n  echos --profile APT41 --schedule \"*/5 * * * *\"\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28\n  echos --export-suricata --profile Cobalt > cobalt.rules\n  echos --export-snort --profile \"RDP Beacon\""
 )]
 struct Args {
     #[arg(
@@ -52,12 +52,15 @@ struct Args {
     #[arg(long, help = "Run for this many seconds then exit")]
     duration: Option<u64>,
 
-    #[arg(long, help = "Load profile definitions from a TOML config file")]
+    #[arg(
+        long,
+        help = "Load profile definitions from a TOML or YAML config file"
+    )]
     config: Option<PathBuf>,
 
     #[arg(
         long,
-        help = "Load profile definitions from all .toml files in a directory"
+        help = "Load profile definitions from all .toml, .yaml, and .yml files in a directory"
     )]
     config_dir: Option<PathBuf>,
 
@@ -90,9 +93,29 @@ struct Args {
 
     #[arg(
         long,
-        help = "Accept invalid/self-signed TLS certificates (HTTPS only)"
+        help = "Accept invalid/self-signed TLS certificates (HTTPS/HTTP2 only)"
     )]
     insecure_tls: bool,
+
+    #[arg(
+        long,
+        requires = "mtls_key",
+        help = "Client certificate PEM file path for mTLS (HTTPS/HTTP2 only; requires --mtls-key)"
+    )]
+    mtls_cert: Option<PathBuf>,
+
+    #[arg(
+        long,
+        requires = "mtls_cert",
+        help = "Client private key PEM file path for mTLS (HTTPS/HTTP2 only; requires --mtls-cert)"
+    )]
+    mtls_key: Option<PathBuf>,
+
+    #[arg(
+        long,
+        help = "Run the profile on a cron schedule. Accepts 5-field (min hour day month weekday) or 6-field (sec min hour day month weekday). Example: \"*/5 * * * *\" = every 5 min"
+    )]
+    schedule: Option<String>,
 
     #[arg(long, help = "Print what would run and exit without sending traffic")]
     dry_run: bool,
@@ -248,6 +271,14 @@ fn print_summary_human(summary: &RunSummary) {
     println!("{sep}");
 }
 
+fn normalize_schedule_expression(cron_expr: &str) -> String {
+    if cron_expr.split_whitespace().count() == 5 {
+        format!("0 {cron_expr}")
+    } else {
+        cron_expr.to_string()
+    }
+}
+
 /// Dispatch a single beacon to the appropriate network function.
 async fn dispatch(
     profile: &TrafficProfile,
@@ -256,6 +287,7 @@ async fn dispatch(
     match &profile.protocol {
         Protocol::Http => network::send_http(profile, opts).await,
         Protocol::Https => network::send_https(profile, opts).await,
+        Protocol::Http2 => network::send_http2(profile, opts).await,
         Protocol::Dns => network::send_dns(profile, opts).await,
         Protocol::Icmp => network::send_icmp(profile, opts).await,
         Protocol::Smb => network::send_smb(profile, opts).await,
@@ -418,6 +450,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         dry_run: args.dry_run,
         json_output: args.json,
         target_override: args.target.clone(),
+        mtls_cert: args.mtls_cert.clone(),
+        mtls_key: args.mtls_key.clone(),
     };
 
     // Load built-in profiles then merge external ones (later wins on name collision).
@@ -645,6 +679,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Schedule mode: repeat profile execution on a cron schedule.
+    if let Some(ref cron_expr) = args.schedule {
+        use cron::Schedule;
+        use std::str::FromStr;
+
+        let normalized = normalize_schedule_expression(cron_expr);
+        let schedule = Schedule::from_str(&normalized)
+            .map_err(|e| format!("Invalid cron expression '{}': {}", cron_expr, e))?;
+
+        loop {
+            let next = match schedule.upcoming(chrono::Local).next() {
+                Some(t) => t,
+                None => {
+                    tracing::warn!("Cron schedule has no future occurrences, exiting");
+                    break;
+                }
+            };
+            let now = chrono::Local::now();
+            let wait = (next - now).to_std().unwrap_or_default();
+            tracing::info!(
+                next = %next.format("%Y-%m-%d %H:%M:%S"),
+                wait_secs = wait.as_secs(),
+                "next scheduled run"
+            );
+            sleep(wait).await;
+
+            let summary =
+                run_profile(active_profile.clone(), args.count, args.duration, &opts).await;
+            if opts.json_output {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&summary).unwrap_or_default()
+                );
+            } else {
+                print_summary_human(&summary);
+            }
+        }
+        return Ok(());
+    }
+
     let summary = run_profile(active_profile, args.count, args.duration, &opts).await;
 
     if opts.json_output {
@@ -654,4 +728,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_schedule_expression;
+
+    #[test]
+    fn test_normalize_schedule_expression_adds_seconds_for_five_fields() {
+        assert_eq!(
+            normalize_schedule_expression("*/5 * * * *"),
+            "0 */5 * * * *"
+        );
+    }
+
+    #[test]
+    fn test_normalize_schedule_expression_preserves_six_fields() {
+        assert_eq!(
+            normalize_schedule_expression("30 */5 * * * *"),
+            "30 */5 * * * *"
+        );
+    }
 }

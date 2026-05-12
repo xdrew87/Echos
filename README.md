@@ -1,7 +1,7 @@
 # Echos
 
 [![CI](https://github.com/xdrew87/Echos/actions/workflows/ci.yml/badge.svg)](https://github.com/xdrew87/Echos/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue)](https://github.com/xdrew87/Echos/releases)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue)](https://github.com/xdrew87/Echos/releases)
 [![Language](https://img.shields.io/badge/language-Rust-orange?logo=rust)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)](https://github.com/xdrew87/Echos/releases)
@@ -27,19 +27,19 @@ Use it to answer questions like:
 
 ## Features
 
-- **7 protocols** — HTTP, HTTPS, DNS, ICMP, SMB, WebSocket, SMTP
-- **10 built-in profiles** — Cobalt Strike, APT28, Lazarus, APT29, Emotet, FIN7, ICMP, SMB, WebSocket, SMTP
+- **11 protocols** — HTTP, HTTPS, HTTP/2, DNS, ICMP, SMB, WebSocket, SMTP, FTP, LDAP, RDP
+- **19 built-in profiles** — Cobalt Strike, APT28, Lazarus, APT29, Emotet, FIN7, APT41, ICMP, SMB, WebSocket, SMTP, Sandworm, Turla, Carbanak, CS DNS Beacon, Meterpreter, FTP Beacon, LDAP Beacon, RDP Beacon
 - **3 jitter algorithms** — Uniform, Gaussian (Box-Muller), Sinusoidal (business-hours modulation)
 - **Bounded execution** — `--count N` or `--duration SECS`, stop on whichever hits first
 - **Runtime target override** — `--target` points any profile at your listener without recompiling
-- **External TOML config** — define custom profiles without touching source code
+- **External TOML/YAML config** — define custom profiles without touching source code
 - **Profile sequencing** — `--sequence "Cobalt,APT28"` or named sequences from config
 - **Sigma rule export** — `--export-sigma --profile <name>` prints a ready-to-tune Sigma YAML rule
 - **Suricata & Snort rule export** — `--export-suricata` / `--export-snort` generate IDS rules from profile definitions
 - **Structured logging** — human-readable or JSON, with optional file output
 - **Exponential backoff** — kicks in after 3 consecutive beacon failures, caps at 300 s
 - **Rotating target pools** — simulate DGA/fast-flux by specifying multiple targets per profile
-- **Safe HTTPS defaults** — certificate validation on by default; `--insecure-tls` only when explicitly passed
+- **Safe HTTPS/HTTP2 defaults** — certificate validation on by default; `--insecure-tls` only when explicitly passed
 - **Dry-run mode** — preview exactly what would happen without sending any traffic
 
 ---
@@ -86,7 +86,7 @@ Requires Rust 1.70+.
 ### `--list`
 
 ```
-Available Profiles (18 total — 18 built-in, 0 from config)
+Available Profiles (19 total — 19 built-in, 0 from config)
 
   NAME                   PROTOCOL      DELAY    JITTER    ALGORITHM       ROTATING     HEADERS    SOURCE
   ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -97,6 +97,7 @@ Available Profiles (18 total — 18 built-in, 0 from config)
   APT29                  HTTPS         600s     10%       Sinusoidal      No           5          Built-in
   Emotet                 HTTP          60s      25%       Gaussian        Yes          3          Built-in
   FIN7                   HTTPS         30s      10%       Uniform         No           6          Built-in
+  APT41                  HTTP/2        45s      15%       Gaussian        No           5          Built-in
   SMB Beacon             SMB           120s     10%       Uniform         No           0          Built-in
   WebSocket Beacon       WebSocket     15s      15%       Uniform         No           0          Built-in
   SMTP Beacon            SMTP          90s      10%       Uniform         No           0          Built-in
@@ -197,8 +198,8 @@ JSON summary (end of run):
 | `--target <URL>` | — | Override the profile destination at runtime |
 | `--count <N>` | — | Send exactly N beacon iterations then exit |
 | `--duration <SECS>` | — | Run for this many seconds then exit |
-| `--config <FILE>` | — | Load additional profiles from a TOML file |
-| `--config-dir <DIR>` | — | Load profiles from all `.toml` files in a directory |
+| `--config <FILE>` | — | Load additional profiles from a TOML, YAML, or YML file |
+| `--config-dir <DIR>` | — | Load profiles from all `.toml`, `.yaml`, and `.yml` files in a directory |
 | `--sequence <NAMES>` | — | Run profiles in sequence: `"Cobalt,APT28"` or a named sequence from config |
 | `--export-sigma` | — | Print a Sigma YAML detection rule for the selected profile and exit |
 | `--export-suricata` | — | Print a Suricata `.rules` detection rule for the selected profile and exit |
@@ -208,7 +209,10 @@ JSON summary (end of run):
 | `--quiet` | — | Show only warnings, errors, and the final summary |
 | `--log-file <FILE>` | — | Write logs to a file (always JSON format) |
 | `--timeout <SECS>` | `10` | Per-connection/request timeout |
-| `--insecure-tls` | — | Accept invalid/self-signed TLS certificates (HTTPS only) |
+| `--insecure-tls` | — | Accept invalid/self-signed TLS certificates (HTTPS/HTTP2 only) |
+| `--mtls-cert <FILE>` | — | Client certificate PEM for mTLS on HTTPS/HTTP2 beacons |
+| `--mtls-key <FILE>` | — | Client private key PEM for mTLS on HTTPS/HTTP2 beacons |
+| `--schedule <CRON>` | — | Re-run the selected profile indefinitely on a 5- or 6-field cron schedule |
 | `--dry-run` | — | Print what would happen and exit without sending traffic |
 
 When both `--count` and `--duration` are given, echos stops when **either** limit is first reached.
@@ -436,13 +440,51 @@ Pass `--insecure-tls` only when your lab server uses a self-signed certificate a
 echos --profile Lazarus --insecure-tls --count 1
 ```
 
-This flag affects only HTTPS profiles. HTTP, DNS, ICMP, SMB, WebSocket, and SMTP profiles are unaffected.
+This flag affects HTTPS and HTTP/2 profiles. HTTP, DNS, ICMP, SMB, WebSocket, SMTP, FTP, LDAP, and RDP profiles are unaffected.
+
+---
+
+## HTTP/2 Support
+
+Use the built-in `APT41` profile or set `protocol = "http2"` in external config to exercise ALPN-negotiated HTTP/2 traffic.
+
+```bash
+echos --profile APT41 --count 3 --target https://127.0.0.1:8443
+```
+
+## mTLS Support
+
+Supply a PEM client certificate and PEM private key to authenticate HTTPS or HTTP/2 beacons with mutual TLS.
+
+```bash
+echos --profile APT41 --mtls-cert client.crt.pem --mtls-key client.key.pem --count 1
+```
+
+## Schedule-based Execution
+
+`--schedule` re-runs the selected profile indefinitely. Standard 5-field cron expressions are accepted and automatically normalized; 6-field expressions are also supported.
+
+```bash
+# Every 5 minutes
+echos --profile APT41 --schedule "*/5 * * * *"
+
+# Every 30 seconds
+echos --profile Cobalt --schedule "30 * * * * *"
+```
+
+## YAML Config Support
+
+Echos now supports `.yaml` and `.yml` config files alongside TOML.
+
+```bash
+echos --config examples/echos.yaml --profile "YAML HTTP/2 Profile" --count 1
+```
 
 ---
 
 ## Config File Format
 
-Define additional profiles in TOML. Load them at runtime with `--config` or `--config-dir`.
+Define additional profiles in TOML or YAML. Load them at runtime with `--config` or `--config-dir`.
 
 ```toml
 # examples/echos.toml
@@ -458,6 +500,16 @@ jitter_algorithm = "gaussian"   # uniform | gaussian | sinusoidal (default: unif
 [profiles.headers]
 User-Agent = "Mozilla/5.0 (compatible; LabScanner/1.0)"
 X-Lab-ID   = "detection-lab-01"
+```
+
+```yaml
+# examples/echos.yaml
+profiles:
+  - name: "YAML HTTP/2 Profile"
+    protocol: "http2"
+    target: "https://192.168.1.100:8443"
+    base_delay_secs: 30
+    jitter_percent: 10.0
 ```
 
 **Required fields:** `name`, `protocol`, `target`, `base_delay_secs`, `jitter_percent`
@@ -478,6 +530,7 @@ External profiles with the same name as a built-in profile silently override the
 | APT29 | HTTPS | 600 s | 10% | Sinusoidal | Office 365 UA, business-hours blend |
 | Emotet | HTTP | 60 s | 25% | Gaussian | Rotating 4-target pool, DGA simulation |
 | FIN7 | HTTPS | 30 s | 10% | Uniform | CDN-masquerading headers |
+| APT41 | HTTP/2 | 45 s | 15% | Gaussian | HTTP/2 C2 simulation for JA3/JA4-aware detections |
 | SMB Beacon | SMB | 120 s | 10% | Uniform | SMB negotiate probe on port 445 |
 | WebSocket Beacon | WebSocket | 15 s | 15% | Uniform | Single text frame over WS |
 | SMTP Beacon | SMTP | 90 s | 10% | Uniform | EHLO probe without sending mail |

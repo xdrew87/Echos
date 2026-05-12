@@ -78,7 +78,7 @@ fn extract_host(target: &str) -> &str {
 
 fn build_rules(profile: &TrafficProfile, profile_index: usize) -> Vec<String> {
     match &profile.protocol {
-        Protocol::Http | Protocol::Https | Protocol::WebSocket => {
+        Protocol::Http | Protocol::Https | Protocol::Http2 | Protocol::WebSocket => {
             vec![build_http_rule(profile, make_sid(profile_index, 1))]
         }
         Protocol::Dns => {
@@ -130,10 +130,10 @@ fn build_rules(profile: &TrafficProfile, profile_index: usize) -> Vec<String> {
 
 fn build_http_rule(profile: &TrafficProfile, sid: u64) -> String {
     let slug = slugify(&profile.name);
-    let proto_label = if matches!(&profile.protocol, Protocol::Https) {
-        "https"
-    } else {
-        "http"
+    let proto_label = match &profile.protocol {
+        Protocol::Https => "https",
+        Protocol::Http2 => "http2",
+        _ => "http",
     };
     let mut opts: Vec<String> = Vec::new();
     opts.push(format!("msg:\"Echos - {}\";", profile.name));
@@ -304,5 +304,12 @@ mod tests {
         assert_eq!(extract_host("http://example.com/path"), "example.com");
         assert_eq!(extract_host("https://example.com:8443/path"), "example.com");
         assert_eq!(extract_host("example.com"), "example.com");
+    }
+
+    #[test]
+    fn test_generate_http2_metadata_label() {
+        let p = TrafficProfile::new("APT41", "https://127.0.0.1:8443", 45, 15.0, Protocol::Http2);
+        let rules = generate(&p, 0);
+        assert!(rules.contains("protocol http2"));
     }
 }

@@ -4,26 +4,6 @@ This document tracks planned improvements for Echos. Items are not ordered by pr
 
 ---
 
-## In Progress / Near-term
-
-### HTTP/2 support
-
-The current HTTPS implementation uses HTTP/1.1. HTTP/2 changes TLS fingerprint characteristics relevant to some JA3/JA4 detections.
-
-### mTLS support
-
-Mutual TLS for simulating C2 frameworks that authenticate both ends of the connection.
-
-### Schedule-based execution
-
-Cron-style scheduling to run profiles at specific times or intervals, useful for long-running lab tests that need to repeat over hours or days.
-
-### YAML config support
-
-Optional YAML alternative to TOML for users who prefer it. TOML remains the primary and default format.
-
----
-
 ## Longer-term / Research
 
 ### PCAP output
@@ -47,6 +27,13 @@ Native integration with detection platforms — push a profile run and automatic
 A simple local web interface for configuring and launching profiles without using the CLI. Primarily aimed at defenders who are not comfortable with command-line tools.
 
 ---
+
+## Completed (v0.6.0)
+
+- ✅ HTTP/2 support — `Protocol::Http2`, APT41 profile, and ALPN-based h2 negotiation via rustls
+- ✅ mTLS support — `--mtls-cert` + `--mtls-key`, PEM identity loading via reqwest rustls backend
+- ✅ Schedule-based execution — `--schedule`, 5/6-field cron support, powered by the `cron` crate
+- ✅ YAML config support — `serde_yaml`, `.yaml`/`.yml` loading, and `examples/echos.yaml`
 
 ## Completed (v0.5.0)
 
