@@ -15,7 +15,8 @@ mod suricata;
 
 use crate::profiles::{Protocol, TrafficProfile};
 use crate::runtime::RuntimeOptions;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::{generate, Shell};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,11 +26,11 @@ use tokio::time::sleep;
 #[derive(Parser)]
 #[command(
     name = "echos",
-    version = "0.6.0",
+    version,
     about = "Network beacon emulator for EDR/NDR detection lab testing"
 )]
 #[command(
-    after_help = "EXAMPLES:\n  echos --list\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --config examples/echos.yaml --profile \"YAML HTTP/2 Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --profile APT41 --mtls-cert client.crt.pem --mtls-key client.key.pem --count 1\n  echos --profile APT41 --schedule \"*/5 * * * *\"\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28\n  echos --export-suricata --profile Cobalt > cobalt.rules\n  echos --export-snort --profile \"RDP Beacon\""
+    after_help = "EXAMPLES:\n  echos --list\n  echos --list --tag apt\n  echos --list --tag c2 --json\n  echos --completions bash > ~/.bash_completion.d/echos\n  echos --completions powershell > echos.ps1\n  echos --profile Cobalt --count 5\n  echos --profile Lazarus --duration 60 --insecure-tls\n  echos --profile Cobalt --target http://10.0.0.1:8080 --count 3\n  echos --config examples/echos.toml --profile \"My Custom Profile\"\n  echos --config examples/echos.yaml --profile \"YAML HTTP/2 Profile\"\n  echos --profile APT29 --json --log-file run.json\n  echos --profile Cobalt --dry-run\n  echos --profile APT41 --mtls-cert client.crt.pem --mtls-key client.key.pem --count 1\n  echos --profile APT41 --schedule \"*/5 * * * *\"\n  echos --sequence \"Cobalt,APT28\" --count 3\n  echos --config examples/echos.toml --sequence recon-chain\n  echos --export-sigma --profile APT28\n  echos --export-suricata --profile Cobalt > cobalt.rules\n  echos --export-snort --profile \"RDP Beacon\""
 )]
 struct Args {
     #[arg(
@@ -140,6 +141,20 @@ struct Args {
 
     #[arg(long, help = "Export a Snort 3 rule for the selected profile and exit")]
     export_snort: bool,
+
+    #[arg(
+        long,
+        help = "Filter --list output to profiles matching this tag (requires --list). Example tags: apt, c2, exfil, lateral-movement, recon, russia, financial",
+        requires = "list"
+    )]
+    tag: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "SHELL",
+        help = "Generate shell completion script for SHELL and exit. Supported: bash, zsh, fish, powershell, elvish"
+    )]
+    completions: Option<Shell>,
 }
 
 #[derive(Serialize)]
@@ -163,7 +178,14 @@ fn merge_profiles(base: Vec<TrafficProfile>, incoming: Vec<TrafficProfile>) -> V
     let mut result = base;
     for p in incoming {
         if let Some(existing) = result.iter_mut().find(|e| e.name == p.name) {
+            // Preserve built-in tags when the config override omits them.
+            let preserved_tags = if p.tags.is_empty() {
+                existing.tags.clone()
+            } else {
+                p.tags.clone()
+            };
             *existing = p;
+            existing.tags = preserved_tags;
         } else {
             result.push(p);
         }
@@ -171,32 +193,59 @@ fn merge_profiles(base: Vec<TrafficProfile>, incoming: Vec<TrafficProfile>) -> V
     result
 }
 
-fn print_list(profiles: &[TrafficProfile]) {
-    let builtin_count = profiles.iter().filter(|p| !p.from_config).count();
-    let config_count = profiles.iter().filter(|p| p.from_config).count();
+fn print_list(profiles: &[TrafficProfile], tag_filter: Option<&str>) {
+    let displayed: Vec<&TrafficProfile> = if let Some(tag) = tag_filter {
+        let tag_lower = tag.to_lowercase();
+        profiles
+            .iter()
+            .filter(|p| p.tags.iter().any(|t| t.to_lowercase() == tag_lower))
+            .collect()
+    } else {
+        profiles.iter().collect()
+    };
+
+    if displayed.is_empty() {
+        println!("No profiles found with tag '{}'.", tag_filter.unwrap_or(""));
+        println!("Use --list to see all available profiles and their tags.");
+        return;
+    }
+
+    let builtin_count = displayed.iter().filter(|p| !p.from_config).count();
+    let config_count = displayed.iter().filter(|p| p.from_config).count();
+    let filter_note = tag_filter
+        .map(|t| format!(" — tag: {t}"))
+        .unwrap_or_default();
 
     println!(
-        "Available Profiles ({} total — {} built-in, {} from config)\n",
-        profiles.len(),
+        "Available Profiles ({} total — {} built-in, {} from config){}\n",
+        displayed.len(),
         builtin_count,
-        config_count
+        config_count,
+        filter_note
     );
 
     println!(
-        "  {:<22} {:<13} {:<8} {:<9} {:<14} {:<11} {:<10} SOURCE",
-        "NAME", "PROTOCOL", "DELAY", "JITTER", "ALGORITHM", "ROTATING", "HEADERS"
+        "  {:<22} {:<13} {:<8} {:<9} {:<14} {:<11} {:<10} {:<10} TAGS",
+        "NAME", "PROTOCOL", "DELAY", "JITTER", "ALGORITHM", "ROTATING", "HEADERS", "SOURCE"
     );
-    println!("  {}", "─".repeat(93));
+    println!("  {}", "─".repeat(107));
 
-    for p in profiles {
+    for p in displayed {
         let delay = format!("{}s", p.base_delay.as_secs());
         let jitter = format!("{:.0}%", p.jitter_percent);
         let rotating = if p.targets.is_empty() { "No" } else { "Yes" };
         let headers = p.custom_headers.len().to_string();
         let source = if p.from_config { "Config" } else { "Built-in" };
+        let tags_str = p.tags.join(", ");
+        // Truncate tags to 35 chars to keep the table manageable.
+        let tags_display = if tags_str.len() > 35 {
+            format!("{}…", &tags_str[..34])
+        } else {
+            tags_str
+        };
 
         println!(
-            "  {:<22} {:<13} {:<8} {:<9} {:<14} {:<11} {:<10} {}",
+            "  {:<22} {:<13} {:<8} {:<9} {:<14} {:<11} {:<10} {:<10} {}",
             p.name,
             p.protocol.display_name(),
             delay,
@@ -204,14 +253,15 @@ fn print_list(profiles: &[TrafficProfile]) {
             p.jitter_algorithm.display_name(),
             rotating,
             headers,
-            source
+            source,
+            tags_display
         );
     }
 
-    println!("\nTarget: use --target to override any profile's destination at runtime.");
+    println!("\nFilter by tag: echos --list --tag <tag>  (e.g. apt, c2, exfil, lateral-movement)");
 }
 
-fn print_list_json(profiles: &[TrafficProfile]) {
+fn print_list_json(profiles: &[TrafficProfile], tag_filter: Option<&str>) {
     #[derive(Serialize)]
     struct ProfileInfo<'a> {
         name: &'a str,
@@ -222,8 +272,18 @@ fn print_list_json(profiles: &[TrafficProfile]) {
         rotating: bool,
         header_count: usize,
         source: &'a str,
+        tags: &'a [String],
     }
-    let infos: Vec<_> = profiles
+    let displayed: Vec<&TrafficProfile> = if let Some(tag) = tag_filter {
+        let tag_lower = tag.to_lowercase();
+        profiles
+            .iter()
+            .filter(|p| p.tags.iter().any(|t| t.to_lowercase() == tag_lower))
+            .collect()
+    } else {
+        profiles.iter().collect()
+    };
+    let infos: Vec<_> = displayed
         .iter()
         .map(|p| ProfileInfo {
             name: &p.name,
@@ -234,6 +294,7 @@ fn print_list_json(profiles: &[TrafficProfile]) {
             rotating: !p.targets.is_empty(),
             header_count: p.custom_headers.len(),
             source: if p.from_config { "Config" } else { "Built-in" },
+            tags: &p.tags,
         })
         .collect();
     println!(
@@ -437,6 +498,14 @@ async fn run_profile(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
+    // Handle --completions before anything else; no logging or config needed.
+    if let Some(shell) = args.completions {
+        let mut cmd = Args::command();
+        let bin_name = cmd.get_name().to_string();
+        generate(shell, &mut cmd, bin_name, &mut std::io::stdout());
+        return Ok(());
+    }
+
     let _log_guard = logging::init(
         args.verbose,
         args.quiet,
@@ -485,10 +554,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if args.list {
+        let tag = args.tag.as_deref();
         if args.json {
-            print_list_json(&all_profiles);
+            print_list_json(&all_profiles, tag);
         } else {
-            print_list(&all_profiles);
+            print_list(&all_profiles, tag);
         }
         return Ok(());
     }
@@ -732,7 +802,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_schedule_expression;
+    use super::{merge_profiles, normalize_schedule_expression};
+    use crate::profiles::{Protocol, TrafficProfile};
 
     #[test]
     fn test_normalize_schedule_expression_adds_seconds_for_five_fields() {
@@ -748,5 +819,49 @@ mod tests {
             normalize_schedule_expression("30 */5 * * * *"),
             "30 */5 * * * *"
         );
+    }
+
+    #[test]
+    fn test_merge_preserves_builtin_tags_when_config_has_none() {
+        let base = vec![
+            TrafficProfile::new("T", "http://t", 10, 10.0, Protocol::Http)
+                .with_tags(&["c2", "http"]),
+        ];
+        // Incoming config profile with no tags overrides the built-in.
+        let incoming = vec![TrafficProfile::new(
+            "T",
+            "http://override",
+            20,
+            5.0,
+            Protocol::Http,
+        )];
+        let merged = merge_profiles(base, incoming);
+        assert_eq!(merged[0].target, "http://override");
+        assert_eq!(merged[0].tags, vec!["c2", "http"]);
+    }
+
+    #[test]
+    fn test_merge_uses_config_tags_when_specified() {
+        let base = vec![
+            TrafficProfile::new("T", "http://t", 10, 10.0, Protocol::Http)
+                .with_tags(&["c2", "http"]),
+        ];
+        let incoming = vec![
+            TrafficProfile::new("T", "http://override", 20, 5.0, Protocol::Http)
+                .with_tags(&["custom-tag"]),
+        ];
+        let merged = merge_profiles(base, incoming);
+        assert_eq!(merged[0].tags, vec!["custom-tag"]);
+    }
+
+    #[test]
+    fn test_tag_filter_case_insensitive() {
+        let profiles = crate::profiles::get_profiles();
+        let tag_lower = "apt";
+        let apt_count = profiles
+            .iter()
+            .filter(|p| p.tags.iter().any(|t| t.to_lowercase() == tag_lower))
+            .count();
+        assert!(apt_count >= 5, "expected ≥5 apt profiles, got {apt_count}");
     }
 }

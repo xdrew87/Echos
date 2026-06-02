@@ -27,6 +27,11 @@ Native integration with detection platforms — push a profile run and automatic
 A simple local web interface for configuring and launching profiles without using the CLI. Primarily aimed at defenders who are not comfortable with command-line tools.
 
 ---
+
+## Completed (v0.7.0)
+
+- ✅ Shell completions — `--completions <shell>` generates completion scripts for bash, zsh, fish, powershell, and elvish via `clap_complete`
+- ✅ Profile tag filtering — `tags` field on every profile; `--list --tag <tag>` filters output. Built-in tag vocabulary: `apt`, `c2`, `rat`, `malware`, `botnet`, `exfil`, `recon`, `lateral-movement`, `dga`, `slow`, `tunnel`, and protocol/actor tags
 
 ## Completed (v0.6.0)
 

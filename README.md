@@ -1,7 +1,7 @@
 # Echos
 
 [![CI](https://github.com/xdrew87/Echos/actions/workflows/ci.yml/badge.svg)](https://github.com/xdrew87/Echos/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.6.0-blue)](https://github.com/xdrew87/Echos/releases)
+[![Version](https://img.shields.io/badge/version-0.7.0-blue)](https://github.com/xdrew87/Echos/releases)
 [![Language](https://img.shields.io/badge/language-Rust-orange?logo=rust)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)](https://github.com/xdrew87/Echos/releases)
@@ -30,6 +30,8 @@ Use it to answer questions like:
 - **11 protocols** — HTTP, HTTPS, HTTP/2, DNS, ICMP, SMB, WebSocket, SMTP, FTP, LDAP, RDP
 - **19 built-in profiles** — Cobalt Strike, APT28, Lazarus, APT29, Emotet, FIN7, APT41, ICMP, SMB, WebSocket, SMTP, Sandworm, Turla, Carbanak, CS DNS Beacon, Meterpreter, FTP Beacon, LDAP Beacon, RDP Beacon
 - **3 jitter algorithms** — Uniform, Gaussian (Box-Muller), Sinusoidal (business-hours modulation)
+- **Profile tags + filtering** — every profile carries searchable tags; `--list --tag apt` filters to APT group profiles; `--list --tag c2`, `exfil`, `lateral-movement`, etc.
+- **Shell completions** — `--completions bash|zsh|fish|powershell|elvish` prints a ready-to-install completion script
 - **Bounded execution** — `--count N` or `--duration SECS`, stop on whichever hits first
 - **Runtime target override** — `--target` points any profile at your listener without recompiling
 - **External TOML/YAML config** — define custom profiles without touching source code
@@ -54,6 +56,12 @@ cargo build --release
 
 # List all profiles
 ./target/release/echos --list
+
+# List only APT group profiles
+./target/release/echos --list --tag apt
+
+# Install shell completions (bash example)
+./target/release/echos --completions bash > ~/.bash_completion.d/echos
 
 # Run a single beacon iteration
 ./target/release/echos --profile Cobalt --count 1 --target http://127.0.0.1:8080

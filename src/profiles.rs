@@ -73,6 +73,8 @@ pub struct TrafficProfile {
     pub jitter_percent: f64,
     pub jitter_algorithm: JitterAlgorithm,
     pub protocol: Protocol,
+    /// Searchable tags for filtering with --list --tag. E.g. "apt", "c2", "exfil".
+    pub tags: Vec<String>,
     /// True when loaded from a user-supplied config file.
     pub from_config: bool,
 }
@@ -94,6 +96,7 @@ impl TrafficProfile {
             jitter_percent,
             jitter_algorithm: JitterAlgorithm::Uniform,
             protocol,
+            tags: Vec::new(),
             from_config: false,
         }
     }
@@ -101,6 +104,12 @@ impl TrafficProfile {
     /// Builder-style setter for the jitter algorithm.
     pub fn with_jitter_algorithm(mut self, algorithm: JitterAlgorithm) -> Self {
         self.jitter_algorithm = algorithm;
+        self
+    }
+
+    /// Builder-style setter for tags used with --list --tag filtering.
+    pub fn with_tags(mut self, tags: &[&str]) -> Self {
+        self.tags = tags.iter().map(|s| s.to_string()).collect();
         self
     }
 
@@ -167,7 +176,8 @@ impl TrafficProfile {
 pub fn get_profiles() -> Vec<TrafficProfile> {
     // --- Cobalt Strike ---
     let mut cobalt =
-        TrafficProfile::new("Cobalt", "http://127.0.0.1:8080", 10, 20.0, Protocol::Http);
+        TrafficProfile::new("Cobalt", "http://127.0.0.1:8080", 10, 20.0, Protocol::Http)
+            .with_tags(&["c2", "http", "rat"]);
     cobalt.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
     cobalt.add_header(
         "Accept",
@@ -178,10 +188,12 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     cobalt.add_header("Connection", "keep-alive");
 
     // --- APT28 ---
-    let apt28 = TrafficProfile::new("APT28", "example.com", 30, 10.0, Protocol::Dns);
+    let apt28 = TrafficProfile::new("APT28", "example.com", 30, 10.0, Protocol::Dns)
+        .with_tags(&["apt", "russia", "dns"]);
 
     // --- ICMP Beacon ---
-    let icmp_profile = TrafficProfile::new("ICMP Beacon", "8.8.8.8", 60, 5.0, Protocol::Icmp);
+    let icmp_profile = TrafficProfile::new("ICMP Beacon", "8.8.8.8", 60, 5.0, Protocol::Icmp)
+        .with_tags(&["icmp", "tunnel"]);
 
     // --- Lazarus Group ---
     // HTTPS C2 with slow, Gaussian-jittered beaconing, mimicking Korean-language browser UA.
@@ -192,7 +204,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         15.0,
         Protocol::Https,
     )
-    .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    .with_jitter_algorithm(JitterAlgorithm::Gaussian)
+    .with_tags(&["apt", "north-korea", "https"]);
     lazarus.add_header(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -212,7 +225,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         10.0,
         Protocol::Https,
     )
-    .with_jitter_algorithm(JitterAlgorithm::Sinusoidal);
+    .with_jitter_algorithm(JitterAlgorithm::Sinusoidal)
+    .with_tags(&["apt", "russia", "https", "slow"]);
     apt29.add_header(
         "User-Agent",
         "Microsoft Office/16.0 (Windows NT 10.0; Microsoft Outlook 16.0.17328; Pro)",
@@ -226,7 +240,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     // HTTP with rotating target pool (simulates DGA / fast-flux), Gaussian jitter.
     let mut emotet =
         TrafficProfile::new("Emotet", "http://127.0.0.1:8080", 60, 25.0, Protocol::Http)
-            .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+            .with_jitter_algorithm(JitterAlgorithm::Gaussian)
+            .with_tags(&["malware", "botnet", "http", "dga"]);
     emotet.add_header(
         "User-Agent",
         "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.1; Trident/4.0)",
@@ -240,7 +255,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     // --- FIN7 ---
     // HTTPS beaconing with CDN-masquerading headers to evade inspection,
     // uniform jitter at mid-rate intervals.
-    let mut fin7 = TrafficProfile::new("FIN7", "https://127.0.0.1:8443", 30, 10.0, Protocol::Https);
+    let mut fin7 = TrafficProfile::new("FIN7", "https://127.0.0.1:8443", 30, 10.0, Protocol::Https)
+        .with_tags(&["apt", "financial", "https"]);
     fin7.add_header(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -257,7 +273,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     // Validates HTTP/2-aware IDS rules and JA3/JA4 fingerprint detection.
     let mut apt41 =
         TrafficProfile::new("APT41", "https://127.0.0.1:8443", 45, 15.0, Protocol::Http2)
-            .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+            .with_jitter_algorithm(JitterAlgorithm::Gaussian)
+            .with_tags(&["apt", "china", "http2"]);
     apt41.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     apt41.add_header(
         "Accept",
@@ -268,7 +285,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     apt41.add_header("Cache-Control", "no-cache");
 
     // --- SMB Beacon ---
-    let smb_profile = TrafficProfile::new("SMB Beacon", "127.0.0.1", 120, 10.0, Protocol::Smb);
+    let smb_profile = TrafficProfile::new("SMB Beacon", "127.0.0.1", 120, 10.0, Protocol::Smb)
+        .with_tags(&["lateral-movement", "smb"]);
 
     // --- WebSocket Beacon ---
     let ws_profile = TrafficProfile::new(
@@ -277,24 +295,28 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         15,
         15.0,
         Protocol::WebSocket,
-    );
+    )
+    .with_tags(&["c2", "websocket"]);
 
     // --- SMTP Beacon ---
-    let smtp_profile = TrafficProfile::new("SMTP Beacon", "127.0.0.1:25", 90, 10.0, Protocol::Smtp);
+    let smtp_profile = TrafficProfile::new("SMTP Beacon", "127.0.0.1:25", 90, 10.0, Protocol::Smtp)
+        .with_tags(&["exfil", "smtp"]);
 
     // --- Sandworm (Voodoo Bear) ---
     // Russian GRU-linked APT. Uses slow ICMP beaconing with sinusoidal time-of-day jitter
     // to blend into background network noise during off-hours. Validates ICMP C2 detection
     // rules that trigger on unusual ping frequency from internal hosts.
     let sandworm = TrafficProfile::new("Sandworm", "8.8.8.8", 180, 20.0, Protocol::Icmp)
-        .with_jitter_algorithm(JitterAlgorithm::Sinusoidal);
+        .with_jitter_algorithm(JitterAlgorithm::Sinusoidal)
+        .with_tags(&["apt", "russia", "icmp", "slow"]);
 
     // --- Turla (Snake) ---
     // FSB-linked APT. Uses HTTP with custom encoding and obfuscation headers to disguise
     // C2 traffic as legitimate web requests. Validates detection of anomalous HTTP headers
     // from workstation-class endpoints.
     let mut turla = TrafficProfile::new("Turla", "http://127.0.0.1:8080", 45, 15.0, Protocol::Http)
-        .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+        .with_jitter_algorithm(JitterAlgorithm::Gaussian)
+        .with_tags(&["apt", "russia", "http"]);
     turla.add_header(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1",
@@ -322,7 +344,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         10.0,
         Protocol::Https,
     )
-    .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    .with_jitter_algorithm(JitterAlgorithm::Gaussian)
+    .with_tags(&["apt", "financial", "https", "banking"]);
     carbanak.add_header(
         "User-Agent",
         "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; .NET CLR 2.0.50727)",
@@ -347,7 +370,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         30.0,
         Protocol::Dns,
     )
-    .with_jitter_algorithm(JitterAlgorithm::Uniform);
+    .with_jitter_algorithm(JitterAlgorithm::Uniform)
+    .with_tags(&["c2", "dns", "dga"]);
     cs_dns.add_target("stage.example.com");
     cs_dns.add_target("cdn.example.com");
     cs_dns.add_target("api.example.com");
@@ -363,7 +387,8 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
         25.0,
         Protocol::Http,
     )
-    .with_jitter_algorithm(JitterAlgorithm::Gaussian);
+    .with_jitter_algorithm(JitterAlgorithm::Gaussian)
+    .with_tags(&["c2", "http", "rat"]);
     meterpreter.add_header(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 6.1; Trident/7.0; rv:11.0) like Gecko",
@@ -376,17 +401,20 @@ pub fn get_profiles() -> Vec<TrafficProfile> {
     // --- FTP Beacon ---
     // Passive-mode FTP probe on port 21. Validates detection of outbound FTP connections
     // from workstation endpoints — a strong indicator of data staging or legacy exfiltration.
-    let ftp_profile = TrafficProfile::new("FTP Beacon", "127.0.0.1", 90, 10.0, Protocol::Ftp);
+    let ftp_profile = TrafficProfile::new("FTP Beacon", "127.0.0.1", 90, 10.0, Protocol::Ftp)
+        .with_tags(&["exfil", "ftp"]);
 
     // --- LDAP Beacon ---
     // Anonymous LDAP bind request probe on port 389. Validates detection of unauthorized
     // LDAP enumeration from non-DC hosts — common in credential harvesting and AD recon.
-    let ldap_profile = TrafficProfile::new("LDAP Beacon", "127.0.0.1", 60, 10.0, Protocol::Ldap);
+    let ldap_profile = TrafficProfile::new("LDAP Beacon", "127.0.0.1", 60, 10.0, Protocol::Ldap)
+        .with_tags(&["recon", "ldap"]);
 
     // --- RDP Beacon ---
     // TCP connect probe to port 3389 simulating lateral movement reconnaissance.
     // Validates detection of internal RDP scanning from unexpected source hosts.
-    let rdp_profile = TrafficProfile::new("RDP Beacon", "127.0.0.1", 30, 10.0, Protocol::Rdp);
+    let rdp_profile = TrafficProfile::new("RDP Beacon", "127.0.0.1", 30, 10.0, Protocol::Rdp)
+        .with_tags(&["lateral-movement", "rdp"]);
 
     vec![
         cobalt,
@@ -471,6 +499,26 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(p.get_target(), "http://primary");
         }
+    }
+
+    #[test]
+    fn test_profile_tags_assigned() {
+        let profiles = get_profiles();
+        for p in &profiles {
+            assert!(!p.tags.is_empty(), "profile '{}' has no tags", p.name);
+        }
+        let apt_profiles: Vec<_> = profiles
+            .iter()
+            .filter(|p| p.tags.iter().any(|t| t == "apt"))
+            .collect();
+        assert!(apt_profiles.len() >= 5, "expected ≥5 apt-tagged profiles");
+    }
+
+    #[test]
+    fn test_with_tags_builder() {
+        let p = TrafficProfile::new("T", "http://t", 10, 10.0, Protocol::Http)
+            .with_tags(&["foo", "bar"]);
+        assert_eq!(p.tags, vec!["foo", "bar"]);
     }
 
     #[test]

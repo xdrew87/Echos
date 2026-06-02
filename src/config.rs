@@ -18,6 +18,8 @@ struct ProfileConfig {
     jitter_percent: f64,
     #[serde(default)]
     jitter_algorithm: String,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +89,7 @@ fn convert(pc: ProfileConfig, source_path: &Path) -> Result<TrafficProfile, Stri
     );
     profile.jitter_algorithm = jitter_algorithm;
     profile.from_config = true;
+    profile.tags = pc.tags;
 
     for t in pc.targets {
         profile.add_target(&t);
@@ -155,6 +158,55 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn test_config_tags_parsed() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let path = std::env::current_dir()
+            .expect("current dir")
+            .join(format!("echos-tags-test-{unique}.toml"));
+        let toml = r#"
+[[profiles]]
+name = "Tagged Profile"
+protocol = "http"
+target = "http://127.0.0.1:8080"
+base_delay_secs = 10
+jitter_percent = 10.0
+tags = ["c2", "test"]
+"#;
+        fs::write(&path, toml).expect("write toml config");
+        let loaded = load_from_file(&path).expect("load toml config");
+        fs::remove_file(&path).expect("remove toml config");
+
+        assert_eq!(loaded.profiles[0].tags, vec!["c2", "test"]);
+    }
+
+    #[test]
+    fn test_config_tags_default_empty() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let path = std::env::current_dir()
+            .expect("current dir")
+            .join(format!("echos-notags-test-{unique}.toml"));
+        let toml = r#"
+[[profiles]]
+name = "No Tags Profile"
+protocol = "dns"
+target = "example.com"
+base_delay_secs = 30
+jitter_percent = 5.0
+"#;
+        fs::write(&path, toml).expect("write toml config");
+        let loaded = load_from_file(&path).expect("load toml config");
+        fs::remove_file(&path).expect("remove toml config");
+
+        assert!(loaded.profiles[0].tags.is_empty());
+    }
 
     #[test]
     fn test_parse_protocol_supports_http2() {

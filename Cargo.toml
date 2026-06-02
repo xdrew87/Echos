@@ -1,6 +1,6 @@
 [package]
 name = "echos"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 
 [dependencies]
@@ -8,6 +8,7 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "http2"] }
 rand = "0.9"
 clap = { version = "4.0", features = ["derive"] }
+clap_complete = "4"
 hickory-resolver = { version = "0.26", features = ["tokio"] }
 tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
 futures-util = "0.3"
